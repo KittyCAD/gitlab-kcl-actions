@@ -82,7 +82,7 @@ def render_kcl_artifacts() -> str:
       description: "JSON object of values to replace in sibling parameters.kcl files before running Zoo."
     main_kcl_paths:
       default: "[]"
-      description: "Optional JSON string or array of main.kcl paths to process. Empty processes every main.kcl."
+      description: "Optional bare path, JSON string, or JSON array of main.kcl paths. Empty processes every main.kcl."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."

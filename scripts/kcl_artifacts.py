@@ -79,21 +79,24 @@ def load_json_object(raw: str, description: str) -> dict[str, Any]:
     return value
 
 
-def load_json_string_list(raw: str, description: str) -> list[str]:
+def load_main_kcl_paths(raw: str, description: str) -> list[str]:
     text = raw.strip()
     if not text:
         return []
     try:
         value = json.loads(text)
-    except json.JSONDecodeError as err:
-        fail(f"{description} is not valid JSON: {err}")
-
-    if isinstance(value, str):
-        values = [value]
-    elif isinstance(value, list) and all(isinstance(item, str) for item in value):
-        values = value
+    except json.JSONDecodeError:
+        values = [text]
     else:
-        fail(f"{description} must be a JSON string or array of strings")
+        if isinstance(value, str):
+            values = [value]
+        elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+            values = value
+        else:
+            fail(
+                f"{description} must be a relative main.kcl path, JSON string, "
+                "or JSON array of strings"
+            )
 
     output: list[str] = []
     seen: set[str] = set()
@@ -281,7 +284,7 @@ def write_project_info(
     if not all_main_files:
         fail("required main.kcl file was not found")
 
-    selected_paths = load_json_string_list(main_kcl_paths_json, "main_kcl_paths")
+    selected_paths = load_main_kcl_paths(main_kcl_paths_json, "main_kcl_paths")
     selected_from_input = bool(selected_paths)
     if selected_paths:
         main_files_by_path = {

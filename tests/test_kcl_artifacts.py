@@ -183,6 +183,28 @@ class KclArtifactsTests(unittest.TestCase):
                 ["assembly-2/main.kcl", "assembly-2/part.kcl"],
             )
 
+    def test_project_info_can_filter_to_one_bare_main_kcl_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            nested = root / "assembly-2"
+            nested.mkdir()
+            (nested / "main.kcl").write_text("", encoding="utf-8")
+            (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                "assembly-2/main.kcl",
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                ["assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl"],
+            )
+
     def test_project_info_rejects_missing_selected_main_kcl_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -76,13 +76,13 @@ multiple `main.kcl` files:
 include:
   - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
     inputs:
-      main_kcl_paths: '["assembly-2/main.kcl"]'
+      main_kcl_paths: "assembly-2/main.kcl"
       parameters_json: '{"width": 24}'
 ```
 
-`main_kcl_paths` accepts either a JSON string or a JSON array of relative paths
-to files named `main.kcl`. If it is empty, every discovered `main.kcl` is
-processed.
+`main_kcl_paths` accepts a bare relative path, a JSON string, or a JSON array of
+relative paths to files named `main.kcl`. If it is empty, every discovered
+`main.kcl` is processed.
 
 GitLab evaluates `spec:inputs` when the pipeline is created. Per GitLab's
 input limits, the string inside an interpolation block must stay under 1 KB, so
