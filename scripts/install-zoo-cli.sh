@@ -7,7 +7,7 @@ usage() {
 		usage: $self [zoo-version] [install-dir]
 
 		Installs the Zoo CLI release binary for this Linux runner.
-		If zoo-version is empty, installs the latest GitHub release.
+		If zoo-version is empty, installs the latest release.
 	EOUSAGE
 }
 
@@ -43,7 +43,11 @@ case "$(uname -m)" in
 esac
 
 if [ -z "$requested_version" ]; then
-  release="$(curl -fsSL "https://api.github.com/repos/KittyCAD/cli/releases/latest" | jq -r '.tag_name')"
+  release="$(
+    curl -fsSL --connect-timeout 20 --max-time 120 --retry 3 --retry-delay 2 \
+      "https://api.github.com/repos/KittyCAD/cli/releases/latest" |
+      python3 -c 'import json, sys; print(json.load(sys.stdin).get("tag_name", ""))'
+  )"
 else
   release="$requested_version"
   if [[ "$release" != v* ]]; then
@@ -56,11 +60,15 @@ if [ -z "$release" ] || [ "$release" = 'null' ]; then
 fi
 
 asset="zoo-${arch}-${os}"
-base_url="https://github.com/KittyCAD/cli/releases/download/${release}"
+base_url="https://dl.zoo.dev/releases/cli/${release}"
 mkdir -p "$install_dir"
 
 echo "Installing Zoo CLI ${release} (${asset})"
-expected_sha="$(curl -fsSL "${base_url}/${asset}.sha256" | cut -d ' ' -f 1)"
+expected_sha="$(
+  curl -fsSL --connect-timeout 20 --max-time 120 --retry 3 --retry-delay 2 \
+    "${base_url}/${asset}.sha256" |
+    cut -d ' ' -f 1
+)"
 if [ -z "$expected_sha" ]; then
   echo "error: failed to resolve SHA256 for ${asset} in ${release}" >&2
   exit 1
@@ -69,7 +77,9 @@ fi
 tmp="$(mktemp "${install_dir}/.zoo.XXXXXXXXXX")"
 trap 'rm -f "$tmp"' EXIT
 
-curl -fsSL "${base_url}/${asset}" -o "$tmp"
+curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-delay 2 \
+  "${base_url}/${asset}" \
+  -o "$tmp"
 echo "${expected_sha}  ${tmp}" | sha256sum -c -
 chmod a+x "$tmp"
 mv -f "$tmp" "${install_dir}/zoo"

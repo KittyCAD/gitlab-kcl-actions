@@ -52,7 +52,7 @@ def render_install() -> str:
   image: debian:bookworm-slim
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates curl jq coreutils
+    - apt-get install -y --no-install-recommends ca-certificates curl python3 coreutils
     - rm -rf /var/lib/apt/lists/*
     - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
 """
@@ -122,7 +122,7 @@ def render_kcl_artifacts() -> str:
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates curl jq tar coreutils findutils
+    - apt-get install -y --no-install-recommends ca-certificates curl tar coreutils findutils
     - rm -rf /var/lib/apt/lists/*
     - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
 """
