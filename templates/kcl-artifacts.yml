@@ -44,7 +44,7 @@ spec:
     - |
       cat > .gitlab-kcl-actions/install-zoo-cli.sh <<'KCL_ARTIFACTS_INSTALL_ZOO_CLI_SH'
       #!/usr/bin/env bash
-      set -Eeuo pipefail
+      set -Eeuox pipefail
 
       self="$(basename "$0")"
       usage() {
