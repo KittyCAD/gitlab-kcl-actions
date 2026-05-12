@@ -52,7 +52,7 @@ def render_install() -> str:
   image: debian:bookworm-slim
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates curl python3 coreutils
+    - apt-get install -y --no-install-recommends ca-certificates curl coreutils
     - rm -rf /var/lib/apt/lists/*
     - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
 """

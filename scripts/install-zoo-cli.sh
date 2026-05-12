@@ -46,7 +46,8 @@ if [ -z "$requested_version" ]; then
   release="$(
     curl -fsSL --connect-timeout 20 --max-time 120 --retry 3 --retry-delay 2 \
       "https://api.github.com/repos/KittyCAD/cli/releases/latest" |
-      python3 -c 'import json, sys; print(json.load(sys.stdin).get("tag_name", ""))'
+      sed -n 's/^[[:space:]]*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+      head -n 1
   )"
 else
   release="$requested_version"
