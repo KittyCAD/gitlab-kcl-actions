@@ -1,8 +1,5 @@
 spec:
   inputs:
-    stage:
-      default: test
-      description: "Pipeline stage for the Zoo CLI install job."
     job-name:
       default: install-zoo-cli
       description: "Job name to use after the component merges into the consuming pipeline."
@@ -11,7 +8,6 @@ spec:
       description: "Optional Zoo CLI release, like v0.2.165. Empty installs the latest release."
 ---
 "$[[ inputs.job-name ]]":
-  stage: $[[ inputs.stage ]]
   image: debian:bookworm-slim
   before_script:
     - apt-get update

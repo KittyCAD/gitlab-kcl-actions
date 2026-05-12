@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuox pipefail
+set -Eeuo pipefail
 
 self="$(basename "$0")"
 usage() {

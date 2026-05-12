@@ -1,8 +1,5 @@
 spec:
   inputs:
-    stage:
-      default: test
-      description: "Pipeline stage for the KCL artifact job."
     job-name:
       default: kcl-artifacts
       description: "Job name to use after the component merges into the consuming pipeline."
@@ -37,21 +34,11 @@ spec:
       default: "0.1"
       description: "Camera padding passed to zoo kcl snapshot."
 ---
-"$[[ inputs.job-name ]]":
-  stage: $[[ inputs.stage ]]
-  image: python:3.12-slim
-  variables:
-    KCL_PARAMETERS_JSON: |-
-      $[[ inputs.parameters_json ]]
-    KCL_MAIN_KCL_PATHS: |-
-      $[[ inputs.main_kcl_paths ]]
-    KCL_ZOO_HOST: '$[[ inputs.host ]]'
-    KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
-    KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
-    KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
+"$[[ inputs.job-name ]]-install-zoo-cli":
+  image: debian:bookworm-slim
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates curl tar coreutils findutils
+    - apt-get install -y --no-install-recommends ca-certificates curl coreutils
     - rm -rf /var/lib/apt/lists/*
     - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
     - |
@@ -146,6 +133,32 @@ spec:
 
       "${install_dir}/zoo" version
       KCL_ARTIFACTS_INSTALL_ZOO_CLI_SH
+    - chmod +x .gitlab-kcl-actions/install-zoo-cli.sh
+  script:
+    - .gitlab-kcl-actions/install-zoo-cli.sh '$[[ inputs.zoo_version ]]' "$CI_PROJECT_DIR/.kcl-tools/bin"
+  artifacts:
+    paths:
+      - .kcl-tools/bin/zoo
+
+"$[[ inputs.job-name ]]":
+  image: python:3.12-slim
+  needs:
+    - job: "$[[ inputs.job-name ]]-install-zoo-cli"
+      artifacts: true
+  variables:
+    KCL_PARAMETERS_JSON: |-
+      $[[ inputs.parameters_json ]]
+    KCL_MAIN_KCL_PATHS: |-
+      $[[ inputs.main_kcl_paths ]]
+    KCL_ZOO_HOST: '$[[ inputs.host ]]'
+    KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
+    KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
+    KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates tar coreutils findutils
+    - rm -rf /var/lib/apt/lists/*
+    - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
     - |
       cat > .gitlab-kcl-actions/kcl_artifacts.py <<'KCL_ARTIFACTS_KCL_ARTIFACTS_PY'
       #!/usr/bin/env python3
@@ -954,9 +967,8 @@ spec:
         --host "$host" \
         --parameters-json "$parameters_json"
       KCL_ARTIFACTS_RUN_KCL_ARTIFACTS_SH
-    - chmod +x .gitlab-kcl-actions/install-zoo-cli.sh .gitlab-kcl-actions/run-kcl-artifacts.sh
+    - chmod +x .gitlab-kcl-actions/run-kcl-artifacts.sh
     - export PATH="$CI_PROJECT_DIR/.kcl-tools/bin:$PATH"
-    - .gitlab-kcl-actions/install-zoo-cli.sh '$[[ inputs.zoo_version ]]' "$CI_PROJECT_DIR/.kcl-tools/bin"
   script:
     - export PATH="$CI_PROJECT_DIR/.kcl-tools/bin:$PATH"
     - KCL_ARTIFACTS_PY="$CI_PROJECT_DIR/.gitlab-kcl-actions/kcl_artifacts.py" .gitlab-kcl-actions/run-kcl-artifacts.sh

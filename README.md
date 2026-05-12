@@ -51,7 +51,10 @@ use-zoo:
 ### `kcl-artifacts`
 
 This component installs Zoo itself. You do not need to include
-`install-zoo-cli` separately for the artifact workflow.
+`install-zoo-cli` separately for the artifact workflow. It always creates both
+jobs: `$[[ inputs.job-name ]]-install-zoo-cli` installs the CLI and
+`$[[ inputs.job-name ]]` generates artifacts with a `needs` dependency on that
+install job.
 
 Include the component from GitLab:
 

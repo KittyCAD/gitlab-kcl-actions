@@ -16,6 +16,10 @@ SCRIPT_FILES = {
     "kcl_artifacts.py": ROOT / "scripts" / "kcl_artifacts.py",
     "run-kcl-artifacts.sh": ROOT / "scripts" / "run-kcl-artifacts.sh",
 }
+KCL_ARTIFACT_SCRIPT_FILES = {
+    "kcl_artifacts.py": ROOT / "scripts" / "kcl_artifacts.py",
+    "run-kcl-artifacts.sh": ROOT / "scripts" / "run-kcl-artifacts.sh",
+}
 
 
 def indent(text: str, spaces: int) -> str:
@@ -37,9 +41,6 @@ def render_install() -> str:
     installer = (ROOT / "scripts" / "install-zoo-cli.sh").read_text(encoding="utf-8")
     body = """spec:
   inputs:
-    stage:
-      default: test
-      description: "Pipeline stage for the Zoo CLI install job."
     job-name:
       default: install-zoo-cli
       description: "Job name to use after the component merges into the consuming pipeline."
@@ -48,7 +49,6 @@ def render_install() -> str:
       description: "Optional Zoo CLI release, like v0.2.165. Empty installs the latest release."
 ---
 "$[[ inputs.job-name ]]":
-  stage: $[[ inputs.stage ]]
   image: debian:bookworm-slim
   before_script:
     - apt-get update
@@ -68,12 +68,13 @@ def render_install() -> str:
 
 
 def render_kcl_artifacts() -> str:
-    scripts = {name: path.read_text(encoding="utf-8") for name, path in SCRIPT_FILES.items()}
+    installer = (ROOT / "scripts" / "install-zoo-cli.sh").read_text(encoding="utf-8")
+    scripts = {
+        name: path.read_text(encoding="utf-8")
+        for name, path in KCL_ARTIFACT_SCRIPT_FILES.items()
+    }
     body = """spec:
   inputs:
-    stage:
-      default: test
-      description: "Pipeline stage for the KCL artifact job."
     job-name:
       default: kcl-artifacts
       description: "Job name to use after the component merges into the consuming pipeline."
@@ -108,9 +109,27 @@ def render_kcl_artifacts() -> str:
       default: "0.1"
       description: "Camera padding passed to zoo kcl snapshot."
 ---
+"$[[ inputs.job-name ]]-install-zoo-cli":
+  image: debian:bookworm-slim
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates curl coreutils
+    - rm -rf /var/lib/apt/lists/*
+    - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
+"""
+    body += heredoc_step("install-zoo-cli.sh", installer)
+    body += """    - chmod +x .gitlab-kcl-actions/install-zoo-cli.sh
+  script:
+    - .gitlab-kcl-actions/install-zoo-cli.sh '$[[ inputs.zoo_version ]]' "$CI_PROJECT_DIR/.kcl-tools/bin"
+  artifacts:
+    paths:
+      - .kcl-tools/bin/zoo
+
 "$[[ inputs.job-name ]]":
-  stage: $[[ inputs.stage ]]
   image: python:3.12-slim
+  needs:
+    - job: "$[[ inputs.job-name ]]-install-zoo-cli"
+      artifacts: true
   variables:
     KCL_PARAMETERS_JSON: |-
       $[[ inputs.parameters_json ]]
@@ -122,15 +141,14 @@ def render_kcl_artifacts() -> str:
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates curl tar coreutils findutils
+    - apt-get install -y --no-install-recommends ca-certificates tar coreutils findutils
     - rm -rf /var/lib/apt/lists/*
     - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
 """
     for filename, content in scripts.items():
         body += heredoc_step(filename, content)
-    body += """    - chmod +x .gitlab-kcl-actions/install-zoo-cli.sh .gitlab-kcl-actions/run-kcl-artifacts.sh
+    body += """    - chmod +x .gitlab-kcl-actions/run-kcl-artifacts.sh
     - export PATH="$CI_PROJECT_DIR/.kcl-tools/bin:$PATH"
-    - .gitlab-kcl-actions/install-zoo-cli.sh '$[[ inputs.zoo_version ]]' "$CI_PROJECT_DIR/.kcl-tools/bin"
   script:
     - export PATH="$CI_PROJECT_DIR/.kcl-tools/bin:$PATH"
     - KCL_ARTIFACTS_PY="$CI_PROJECT_DIR/.gitlab-kcl-actions/kcl_artifacts.py" .gitlab-kcl-actions/run-kcl-artifacts.sh
