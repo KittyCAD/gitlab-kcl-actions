@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Shell syntax
+        run: bash -n scripts/*.sh tests/*.sh
+
+      - name: Component template is generated
+        run: python scripts/render_component.py --check
+
+  kcl-artifact-workflow:
+    runs-on: ubuntu-latest
+    env:
+      ZOO_API_TOKEN: ${{ secrets.ZOO_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Require Zoo token
+        run: |
+          if [[ -z "${ZOO_API_TOKEN:-}" ]]; then
+            echo "::error::ZOO_API_TOKEN is required because the real Zoo smoke test is mandatory"
+            exit 1
+          fi
+
+      - name: Install Zoo CLI
+        run: |
+          scripts/install-zoo-cli.sh "" "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Run KCL artifact workflow test
+        run: |
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          tests/test_kcl_artifact_workflow.sh

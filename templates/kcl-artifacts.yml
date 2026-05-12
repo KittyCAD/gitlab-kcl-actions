@@ -1,0 +1,568 @@
+spec:
+  component: [name, version, reference]
+  inputs:
+    stage:
+      default: test
+      description: "Pipeline stage for the KCL artifact job."
+    job-name:
+      default: kcl-artifacts
+      description: "Job name to use after the component merges into the consuming pipeline."
+    parameters_json:
+      default: "{}"
+      description: "JSON object of values to replace in parameters.kcl before running Zoo."
+    host:
+      default: ""
+      description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."
+    zoo_version:
+      default: ""
+      description: "Optional Zoo CLI release, like v0.2.165. Empty installs the latest release."
+    snapshot_angle:
+      default: iso
+      options:
+        - front
+        - top
+        - right-side
+        - four-ways
+        - iso
+      description: "Camera angle used for assembly and per-file snapshots."
+    camera_style:
+      default: ortho
+      options:
+        - ortho
+        - perspective
+      description: "Camera style used for snapshots."
+    camera_padding:
+      default: "0.1"
+      description: "Camera padding passed to zoo kcl snapshot."
+---
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  image: python:3.12-slim
+  variables:
+    KCL_PARAMETERS_JSON: '$[[ inputs.parameters_json ]]'
+    KCL_ZOO_HOST: '$[[ inputs.host ]]'
+    KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
+    KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
+    KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates curl jq tar coreutils findutils
+    - rm -rf /var/lib/apt/lists/*
+    - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
+    - |
+      cat > .gitlab-kcl-actions/install-zoo-cli.sh <<'KCL_ARTIFACTS_INSTALL_ZOO_CLI_SH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      requested_version="${1:-}"
+      install_dir="${2:-/usr/local/bin}"
+
+      case "$(uname -s)" in
+        Linux)
+          os="unknown-linux-musl"
+          ;;
+        *)
+          echo "error: this installer currently supports Linux runners only" >&2
+          exit 1
+          ;;
+      esac
+
+      case "$(uname -m)" in
+        x86_64 | amd64)
+          arch="x86_64"
+          ;;
+        aarch64 | arm64)
+          arch="aarch64"
+          ;;
+        *)
+          echo "error: unsupported architecture: $(uname -m)" >&2
+          exit 1
+          ;;
+      esac
+
+      if [[ -z "$requested_version" ]]; then
+        release="$(curl -fsSL "https://api.github.com/repos/KittyCAD/cli/releases" | jq -r '.[0].name')"
+      else
+        release="$requested_version"
+        if [[ "$release" != v* ]]; then
+          release="v$release"
+        fi
+      fi
+
+      asset="zoo-${arch}-${os}"
+      base_url="https://github.com/KittyCAD/cli/releases/download/${release}"
+      mkdir -p "$install_dir"
+
+      echo "Installing Zoo CLI ${release} (${asset})"
+      expected_sha="$(curl -fsSL "${base_url}/${asset}.sha256" | cut -d ' ' -f 1)"
+      curl -fsSL "${base_url}/${asset}" -o "${install_dir}/zoo"
+      echo "${expected_sha}  ${install_dir}/zoo" | sha256sum -c -
+      chmod a+x "${install_dir}/zoo"
+
+      "${install_dir}/zoo" version
+      KCL_ARTIFACTS_INSTALL_ZOO_CLI_SH
+    - |
+      cat > .gitlab-kcl-actions/kcl_artifacts.py <<'KCL_ARTIFACTS_KCL_ARTIFACTS_PY'
+      #!/usr/bin/env python3
+      """Helpers for the GitLab KCL artifact workflow."""
+
+      from __future__ import annotations
+
+      import argparse
+      import json
+      import math
+      import os
+      from pathlib import Path
+      import re
+      import shlex
+      import sys
+      from typing import Any
+
+
+      REQUIRED_METADATA = {
+          "material_density": (int, float),
+          "material_density_unit": str,
+          "mass_output_unit": str,
+          "volume_output_unit": str,
+          "density_output_unit": str,
+          "surface_area_output_unit": str,
+          "center_of_mass_output_unit": str,
+          "bounding_box_output_unit": str,
+      }
+
+      ENV_NAMES = {
+          "material_density": "MATERIAL_DENSITY",
+          "material_density_unit": "MATERIAL_DENSITY_UNIT",
+          "mass_output_unit": "MASS_OUTPUT_UNIT",
+          "volume_output_unit": "VOLUME_OUTPUT_UNIT",
+          "density_output_unit": "DENSITY_OUTPUT_UNIT",
+          "surface_area_output_unit": "SURFACE_AREA_OUTPUT_UNIT",
+          "center_of_mass_output_unit": "CENTER_OF_MASS_OUTPUT_UNIT",
+          "bounding_box_output_unit": "BOUNDING_BOX_OUTPUT_UNIT",
+      }
+
+      ASSIGNMENT_RE = re.compile(
+          r"^(?P<prefix>\s*(?:export\s+)?)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<equals>\s*=\s*)"
+          r"(?P<value>.*?)(?P<comment>\s*(?://.*)?)$"
+      )
+      SKIPPED_DIRS = {
+          ".git",
+          ".gitlab-kcl-actions",
+          ".kcl-tools",
+          "kcl-artifacts",
+          "node_modules",
+          "target",
+      }
+
+
+      class WorkflowError(Exception):
+          """A user-facing workflow error."""
+
+
+      def fail(message: str) -> None:
+          raise WorkflowError(message)
+
+
+      def load_json_object(raw: str, description: str) -> dict[str, Any]:
+          text = raw.strip()
+          if not text:
+              return {}
+          try:
+              value = json.loads(text)
+          except json.JSONDecodeError as err:
+              fail(f"{description} is not valid JSON: {err}")
+          if not isinstance(value, dict):
+              fail(f"{description} must be a JSON object")
+          return value
+
+
+      def kcl_literal(value: Any) -> str:
+          if value is None:
+              return "none"
+          if isinstance(value, bool):
+              return "true" if value else "false"
+          if isinstance(value, int):
+              return str(value)
+          if isinstance(value, float):
+              if not math.isfinite(value):
+                  fail("JSON numbers must be finite")
+              return repr(value)
+          if isinstance(value, str):
+              return json.dumps(value)
+          if isinstance(value, list):
+              return "[" + ", ".join(kcl_literal(item) for item in value) + "]"
+          if isinstance(value, dict):
+              fields: list[str] = []
+              for key, item in value.items():
+                  if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                      fail(f"object key {key!r} is not a valid KCL identifier")
+                  fields.append(f"{key} = {kcl_literal(item)}")
+              return "{ " + ", ".join(fields) + " }"
+          fail(f"unsupported JSON value type: {type(value).__name__}")
+
+
+      def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
+          if not parameters_file.is_file():
+              fail(f"required parameters.kcl file does not exist: {parameters_file}")
+
+          overrides = load_json_object(overrides_json, "parameters_json")
+          if not overrides:
+              return
+
+          lines = parameters_file.read_text(encoding="utf-8").splitlines(keepends=True)
+          replacement_names = set(overrides)
+          seen: set[str] = set()
+          output: list[str] = []
+
+          for line in lines:
+              newline = ""
+              body = line
+              if body.endswith("\n"):
+                  newline = "\n"
+                  body = body[:-1]
+
+              match = ASSIGNMENT_RE.match(body)
+              if not match:
+                  output.append(line)
+                  continue
+
+              name = match.group("name")
+              if name not in overrides:
+                  output.append(line)
+                  continue
+              if name in seen:
+                  fail(f"parameters.kcl defines {name!r} more than once")
+
+              seen.add(name)
+              output.append(
+                  f"{match.group('prefix')}{name}{match.group('equals')}"
+                  f"{kcl_literal(overrides[name])}{match.group('comment')}{newline}"
+              )
+
+          missing = sorted(replacement_names - seen)
+          if missing:
+              fail(
+                  "parameters_json referenced parameter(s) not defined in parameters.kcl: "
+                  + ", ".join(missing)
+              )
+
+          parameters_file.write_text("".join(output), encoding="utf-8")
+
+
+      def walk_kcl_files(repo_root: Path) -> list[Path]:
+          files: list[Path] = []
+          for root, dirs, filenames in os.walk(repo_root):
+              dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRS)
+              for filename in sorted(filenames):
+                  if filename.endswith(".kcl"):
+                      files.append(Path(root, filename))
+          return files
+
+
+      def relative_posix(path: Path, root: Path) -> str:
+          return path.relative_to(root).as_posix()
+
+
+      def find_single_named_file(repo_root: Path, filename: str) -> Path:
+          matches = [path for path in walk_kcl_files(repo_root) if path.name == filename]
+          if not matches:
+              fail(f"required {filename} file was not found")
+          if len(matches) > 1:
+              formatted = ", ".join(relative_posix(path, repo_root) for path in matches)
+              fail(f"expected exactly one {filename}, found {len(matches)}: {formatted}")
+          return matches[0]
+
+
+      def write_project_info(repo_root: Path, env_out: Path, snapshots_out: Path) -> None:
+          repo_root = repo_root.resolve()
+          main_kcl = find_single_named_file(repo_root, "main.kcl")
+          parameters_kcl = find_single_named_file(repo_root, "parameters.kcl")
+
+          snapshot_files = [
+              path for path in walk_kcl_files(repo_root) if path.resolve() != parameters_kcl.resolve()
+          ]
+
+          env_out.write_text(
+              "\n".join(
+                  [
+                      f"MAIN_KCL={shlex.quote(relative_posix(main_kcl, repo_root))}",
+                      f"PARAMETERS_KCL={shlex.quote(relative_posix(parameters_kcl, repo_root))}",
+                  ]
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          snapshots_out.write_text(
+              "".join(relative_posix(path, repo_root) + "\n" for path in snapshot_files),
+              encoding="utf-8",
+          )
+
+
+      def validate_metadata(metadata_file: Path) -> dict[str, Any]:
+          if not metadata_file.is_file():
+              fail("required metadata.json file was not found at the repo root")
+          try:
+              metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+          except json.JSONDecodeError as err:
+              fail(f"metadata.json is not valid JSON: {err}")
+          if not isinstance(metadata, dict):
+              fail("metadata.json must be a JSON object")
+
+          for field, expected_type in REQUIRED_METADATA.items():
+              if field not in metadata:
+                  fail(f"metadata.json is missing required field: {field}")
+              value = metadata[field]
+              if value is None:
+                  fail(f"metadata.json field {field} must not be null")
+              if field == "material_density":
+                  if isinstance(value, bool) or not isinstance(value, expected_type):
+                      fail("metadata.json field material_density must be a number")
+                  if not math.isfinite(float(value)):
+                      fail("metadata.json field material_density must be finite")
+              elif not isinstance(value, expected_type):
+                  fail(f"metadata.json field {field} must be a string")
+              if isinstance(value, str) and value == "":
+                  fail(f"metadata.json field {field} must not be empty")
+          return metadata
+
+
+      def write_metadata_env(metadata_file: Path, env_out: Path) -> None:
+          metadata = validate_metadata(metadata_file)
+          env_out.write_text(
+              "".join(
+                  f"{env_name}={shlex.quote(str(metadata[field]))}\n"
+                  for field, env_name in ENV_NAMES.items()
+              ),
+              encoding="utf-8",
+          )
+
+
+      def write_manifest(
+          artifact_dir: Path,
+          main_kcl: str,
+          parameters_kcl: str,
+          zoo_version: str,
+          host: str,
+          parameters_json: str,
+      ) -> None:
+          artifact_dir = artifact_dir.resolve()
+          files = sorted(
+              path.relative_to(artifact_dir).as_posix()
+              for path in artifact_dir.rglob("*")
+              if path.is_file() and path.name != "manifest.json"
+          )
+          manifest = {
+              "main_kcl": main_kcl,
+              "parameters_kcl": parameters_kcl,
+              "zoo_version": zoo_version,
+              "host": host or None,
+              "parameters_override_keys": sorted(load_json_object(parameters_json, "parameters_json")),
+              "artifacts": files,
+          }
+          (artifact_dir / "manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+
+
+      def build_parser() -> argparse.ArgumentParser:
+          parser = argparse.ArgumentParser(description=__doc__)
+          subparsers = parser.add_subparsers(dest="command", required=True)
+
+          apply_parser = subparsers.add_parser("apply-parameters")
+          apply_parser.add_argument("--parameters-file", required=True, type=Path)
+          apply_parser.add_argument("--overrides-json", required=True)
+
+          info_parser = subparsers.add_parser("project-info")
+          info_parser.add_argument("--repo-root", required=True, type=Path)
+          info_parser.add_argument("--env-out", required=True, type=Path)
+          info_parser.add_argument("--snapshots-out", required=True, type=Path)
+
+          metadata_parser = subparsers.add_parser("metadata-env")
+          metadata_parser.add_argument("--metadata-file", required=True, type=Path)
+          metadata_parser.add_argument("--env-out", required=True, type=Path)
+
+          manifest_parser = subparsers.add_parser("write-manifest")
+          manifest_parser.add_argument("--artifact-dir", required=True, type=Path)
+          manifest_parser.add_argument("--main-kcl", required=True)
+          manifest_parser.add_argument("--parameters-kcl", required=True)
+          manifest_parser.add_argument("--zoo-version", required=True)
+          manifest_parser.add_argument("--host", default="")
+          manifest_parser.add_argument("--parameters-json", required=True)
+
+          return parser
+
+
+      def main(argv: list[str] | None = None) -> int:
+          parser = build_parser()
+          args = parser.parse_args(argv)
+
+          try:
+              if args.command == "apply-parameters":
+                  apply_parameters(args.parameters_file, args.overrides_json)
+              elif args.command == "project-info":
+                  write_project_info(args.repo_root, args.env_out, args.snapshots_out)
+              elif args.command == "metadata-env":
+                  write_metadata_env(args.metadata_file, args.env_out)
+              elif args.command == "write-manifest":
+                  write_manifest(
+                      args.artifact_dir,
+                      args.main_kcl,
+                      args.parameters_kcl,
+                      args.zoo_version,
+                      args.host,
+                      args.parameters_json,
+                  )
+              else:
+                  parser.error(f"unknown command: {args.command}")
+          except WorkflowError as err:
+              print(f"error: {err}", file=sys.stderr)
+              return 1
+          return 0
+
+
+      if __name__ == "__main__":
+          raise SystemExit(main())
+      KCL_ARTIFACTS_KCL_ARTIFACTS_PY
+    - |
+      cat > .gitlab-kcl-actions/run-kcl-artifacts.sh <<'KCL_ARTIFACTS_RUN_KCL_ARTIFACTS_SH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      python_helper="${KCL_ARTIFACTS_PY:-${script_dir}/kcl_artifacts.py}"
+      repo_root="$(pwd)"
+      artifact_dir="${repo_root}/kcl-artifacts"
+      parameters_json="${KCL_PARAMETERS_JSON:-}"
+      if [[ -z "$parameters_json" ]]; then
+        parameters_json="{}"
+      fi
+      host="${KCL_ZOO_HOST:-}"
+      snapshot_angle="${KCL_SNAPSHOT_ANGLE:-iso}"
+      camera_style="${KCL_CAMERA_STYLE:-ortho}"
+      camera_padding="${KCL_CAMERA_PADDING:-0.1}"
+
+      tmp_parent="$(mktemp -d)"
+      trap 'rm -rf "$tmp_parent"' EXIT
+      workspace="${tmp_parent}/repo"
+      state_dir="${tmp_parent}/state"
+      mkdir -p "$workspace" "$state_dir"
+
+      tar --exclude='./.git' --exclude='./kcl-artifacts' -cf - . | tar -C "$workspace" -xf -
+      rm -rf "$artifact_dir"
+      mkdir -p "$artifact_dir/assembly" "$artifact_dir/snapshots"
+
+      cd "$workspace"
+
+      python3 "$python_helper" project-info \
+        --repo-root "$workspace" \
+        --env-out "$state_dir/project.env" \
+        --snapshots-out "$state_dir/snapshots.list"
+
+      # shellcheck disable=SC1091
+      source "$state_dir/project.env"
+
+      python3 "$python_helper" apply-parameters \
+        --parameters-file "$PARAMETERS_KCL" \
+        --overrides-json "$parameters_json"
+
+      python3 "$python_helper" metadata-env \
+        --metadata-file "$workspace/metadata.json" \
+        --env-out "$state_dir/metadata.env"
+
+      # shellcheck disable=SC1091
+      source "$state_dir/metadata.env"
+
+      zoo_cmd=(zoo)
+      if [[ -n "$host" ]]; then
+        zoo_cmd+=(--host "$host")
+      fi
+
+      zoo_version="$(zoo version)"
+
+      "${zoo_cmd[@]}" kcl lint "$MAIN_KCL"
+
+      "${zoo_cmd[@]}" kcl analyze \
+        --format json \
+        --material-density "$MATERIAL_DENSITY" \
+        --material-density-unit "$MATERIAL_DENSITY_UNIT" \
+        --mass-output-unit "$MASS_OUTPUT_UNIT" \
+        --volume-output-unit "$VOLUME_OUTPUT_UNIT" \
+        --density-output-unit "$DENSITY_OUTPUT_UNIT" \
+        --surface-area-output-unit "$SURFACE_AREA_OUTPUT_UNIT" \
+        --center-of-mass-output-unit "$CENTER_OF_MASS_OUTPUT_UNIT" \
+        "$MAIN_KCL" > "$artifact_dir/assembly/analysis.json"
+
+      export_one() {
+        local format="$1"
+        local extension="$2"
+        local destination="$3"
+        local export_dir="${state_dir}/export-${format}"
+
+        mkdir -p "$export_dir"
+        "${zoo_cmd[@]}" kcl export \
+          --deterministic \
+          --output-format "$format" \
+          "$MAIN_KCL" \
+          "$export_dir"
+
+        exported_count=0
+        exported_file=""
+        while IFS= read -r candidate; do
+          exported_count=$((exported_count + 1))
+          exported_file="$candidate"
+        done < <(find "$export_dir" -type f -name "*.${extension}" | sort)
+        if [[ "$exported_count" -ne 1 ]]; then
+          echo "error: expected one ${extension} export, found ${exported_count}" >&2
+          exit 1
+        fi
+        mv "$exported_file" "$destination"
+      }
+
+      export_one step step "$artifact_dir/assembly/model.step"
+      export_one gltf gltf "$artifact_dir/assembly/model.gltf"
+
+      "${zoo_cmd[@]}" kcl bounding-box \
+        --format json \
+        --output-unit "$BOUNDING_BOX_OUTPUT_UNIT" \
+        "$MAIN_KCL" > "$artifact_dir/assembly/bounding-box.json"
+
+      "${zoo_cmd[@]}" kcl snapshot \
+        --output-format png \
+        --angle "$snapshot_angle" \
+        --camera-style "$camera_style" \
+        --camera-padding "$camera_padding" \
+        "$MAIN_KCL" \
+        "$artifact_dir/assembly/snapshot.png"
+
+      while IFS= read -r snapshot_input; do
+        [[ -n "$snapshot_input" ]] || continue
+        snapshot_output="$artifact_dir/snapshots/${snapshot_input%.kcl}.png"
+        mkdir -p "$(dirname "$snapshot_output")"
+        "${zoo_cmd[@]}" kcl snapshot \
+          --output-format png \
+          --angle "$snapshot_angle" \
+          --camera-style "$camera_style" \
+          --camera-padding "$camera_padding" \
+          "$snapshot_input" \
+          "$snapshot_output"
+      done < "$state_dir/snapshots.list"
+
+      python3 "$python_helper" write-manifest \
+        --artifact-dir "$artifact_dir" \
+        --main-kcl "$MAIN_KCL" \
+        --parameters-kcl "$PARAMETERS_KCL" \
+        --zoo-version "$zoo_version" \
+        --host "$host" \
+        --parameters-json "$parameters_json"
+      KCL_ARTIFACTS_RUN_KCL_ARTIFACTS_SH
+    - chmod +x .gitlab-kcl-actions/install-zoo-cli.sh .gitlab-kcl-actions/run-kcl-artifacts.sh
+    - export PATH="$CI_PROJECT_DIR/.kcl-tools/bin:$PATH"
+    - .gitlab-kcl-actions/install-zoo-cli.sh '$[[ inputs.zoo_version ]]' "$CI_PROJECT_DIR/.kcl-tools/bin"
+  script:
+    - export PATH="$CI_PROJECT_DIR/.kcl-tools/bin:$PATH"
+    - KCL_ARTIFACTS_PY="$CI_PROJECT_DIR/.gitlab-kcl-actions/kcl_artifacts.py" .gitlab-kcl-actions/run-kcl-artifacts.sh
+  artifacts:
+    when: always
+    paths:
+      - kcl-artifacts/

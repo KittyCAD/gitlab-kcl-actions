@@ -1,0 +1,5 @@
+import width, height, depth from "parameters.kcl"
+
+assembly = startSketchOn(XY)
+  |> rectangle(width = width, height = height, center = [0, 0])
+  |> extrude(length = depth)

@@ -1,0 +1,79 @@
+spec:
+  component: [name, version, reference]
+  inputs:
+    stage:
+      default: test
+      description: "Pipeline stage for the Zoo CLI install job."
+    job-name:
+      default: install-zoo-cli
+      description: "Job name to use after the component merges into the consuming pipeline."
+    zoo_version:
+      default: ""
+      description: "Optional Zoo CLI release, like v0.2.165. Empty installs the latest release."
+---
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  image: debian:bookworm-slim
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates curl jq coreutils
+    - rm -rf /var/lib/apt/lists/*
+    - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
+    - |
+      cat > .gitlab-kcl-actions/install-zoo-cli.sh <<'KCL_ARTIFACTS_INSTALL_ZOO_CLI_SH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      requested_version="${1:-}"
+      install_dir="${2:-/usr/local/bin}"
+
+      case "$(uname -s)" in
+        Linux)
+          os="unknown-linux-musl"
+          ;;
+        *)
+          echo "error: this installer currently supports Linux runners only" >&2
+          exit 1
+          ;;
+      esac
+
+      case "$(uname -m)" in
+        x86_64 | amd64)
+          arch="x86_64"
+          ;;
+        aarch64 | arm64)
+          arch="aarch64"
+          ;;
+        *)
+          echo "error: unsupported architecture: $(uname -m)" >&2
+          exit 1
+          ;;
+      esac
+
+      if [[ -z "$requested_version" ]]; then
+        release="$(curl -fsSL "https://api.github.com/repos/KittyCAD/cli/releases" | jq -r '.[0].name')"
+      else
+        release="$requested_version"
+        if [[ "$release" != v* ]]; then
+          release="v$release"
+        fi
+      fi
+
+      asset="zoo-${arch}-${os}"
+      base_url="https://github.com/KittyCAD/cli/releases/download/${release}"
+      mkdir -p "$install_dir"
+
+      echo "Installing Zoo CLI ${release} (${asset})"
+      expected_sha="$(curl -fsSL "${base_url}/${asset}.sha256" | cut -d ' ' -f 1)"
+      curl -fsSL "${base_url}/${asset}" -o "${install_dir}/zoo"
+      echo "${expected_sha}  ${install_dir}/zoo" | sha256sum -c -
+      chmod a+x "${install_dir}/zoo"
+
+      "${install_dir}/zoo" version
+      KCL_ARTIFACTS_INSTALL_ZOO_CLI_SH
+    - chmod +x .gitlab-kcl-actions/install-zoo-cli.sh
+  script:
+    - .gitlab-kcl-actions/install-zoo-cli.sh '$[[ inputs.zoo_version ]]' "$CI_PROJECT_DIR/.kcl-tools/bin"
+  artifacts:
+    paths:
+      - .kcl-tools/bin/zoo

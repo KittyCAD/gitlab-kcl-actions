@@ -1,1 +1,190 @@
 # gitlab-kcl-actions
+
+Reusable GitLab CI/CD component for KCL repositories. It generates CAD exports,
+physics metadata, and render snapshots with the Zoo CLI, then leaves a stable
+artifact tree for a later job to upload to S3, a database, or whatever storage
+system is someone else's problem.
+
+The component is intentionally self-contained because GitLab components only
+release the YAML template to consumers. The YAML writes the helper scripts into
+the job workspace, installs the Zoo CLI, runs the checks, and publishes
+`kcl-artifacts/`.
+
+## Components
+
+### `install-zoo-cli`
+
+Use this when a GitLab pipeline only needs the Zoo CLI installed:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/install-zoo-cli@1.0.0
+```
+
+The component installs the latest Zoo CLI by default, using the same Linux
+release asset and SHA256 check as
+[`KittyCAD/action-install-cli`](https://github.com/KittyCAD/action-install-cli).
+It publishes `.kcl-tools/bin/zoo` as a job artifact so later jobs can consume it.
+
+Pin a version if needed:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/install-zoo-cli@1.0.0
+    inputs:
+      zoo_version: "v0.2.165"
+```
+
+### `kcl-artifacts`
+
+Include the component from GitLab:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
+```
+
+Pass parameter overrides as JSON:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
+    inputs:
+      parameters_json: '{"width": 24, "depth": 6}'
+```
+
+Use a non-default Zoo API host:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
+    inputs:
+      host: "https://api.example.com"
+```
+
+If `host` is empty, the workflow does not pass `--host` and the Zoo CLI uses
+its default host/configuration. If `host` is set, every `zoo kcl ...` command
+receives that host.
+
+The job expects `ZOO_API_TOKEN` to be available in CI/CD variables.
+
+## Repository Contract
+
+Consuming repositories must contain:
+
+- exactly one `main.kcl`, used as the assembly entrypoint.
+- exactly one `parameters.kcl`.
+- one root `metadata.json`.
+
+Missing or duplicate `main.kcl` and `parameters.kcl` files are hard failures.
+Missing or invalid `metadata.json` is also a hard failure.
+
+## `parameters.kcl`
+
+The `parameters_json` input replaces existing top-level assignments in
+`parameters.kcl`. It does not add new parameters.
+
+Example `parameters.kcl`:
+
+```kcl
+@settings(defaultLengthUnit = mm)
+
+export width = 20
+export height = 12
+export depth = 8
+```
+
+Example consuming KCL:
+
+```kcl
+import width, height, depth from "parameters.kcl"
+
+assembly = startSketchOn(XY)
+  |> rectangle(width = width, height = height, center = [0, 0])
+  |> extrude(length = depth)
+```
+
+With:
+
+```json
+{"width": 24, "depth": 6}
+```
+
+the temporary workspace gets:
+
+```kcl
+export width = 24
+export height = 12
+export depth = 6
+```
+
+The repository checkout is not edited. Replacement values are JSON literals
+rendered as KCL literals: numbers, strings, booleans, null as `none`, arrays,
+and objects with identifier-shaped keys.
+
+## `metadata.json`
+
+`metadata.json` lives at the repository root and provides the physics arguments
+for `zoo kcl analyze` and `zoo kcl bounding-box`.
+
+```json
+{
+  "material_density": 7850,
+  "material_density_unit": "kg:m3",
+  "mass_output_unit": "kg",
+  "volume_output_unit": "cm3",
+  "density_output_unit": "kg:m3",
+  "surface_area_output_unit": "cm2",
+  "center_of_mass_output_unit": "mm",
+  "bounding_box_output_unit": "mm"
+}
+```
+
+All fields are required. `material_density` must be a finite number. The unit
+fields must be non-empty strings. The workflow does not guess density, units,
+or material data.
+
+## Artifacts
+
+The workflow always writes to `kcl-artifacts/`:
+
+```text
+kcl-artifacts/
+  assembly/
+    model.step
+    model.gltf
+    analysis.json
+    bounding-box.json
+    snapshot.png
+  snapshots/
+    main.png
+    part.png
+  manifest.json
+```
+
+STEP, glTF, physics analysis, bounding box, and assembly snapshot are generated
+from `main.kcl`. Per-file snapshots are generated for every `.kcl` file except
+`parameters.kcl`.
+
+The workflow stops after producing artifacts. Uploading those artifacts is out
+of scope and should happen in a later GitLab job.
+
+## Local Development
+
+Run the unit tests and real Zoo flow test:
+
+```sh
+python -m unittest discover -s tests -v
+tests/test_kcl_artifact_workflow.sh
+python scripts/render_component.py --check
+```
+
+Render the self-contained GitLab component after editing scripts:
+
+```sh
+python scripts/render_component.py
+```
+
+The real flow test requires `ZOO_API_TOKEN` and a `zoo` binary on `PATH`.
+GitHub CI installs the latest Zoo CLI and runs that test on every push and pull
+request. If the secret is missing, CI fails.
