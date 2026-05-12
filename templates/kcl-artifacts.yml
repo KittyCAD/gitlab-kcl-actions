@@ -1,5 +1,8 @@
 spec:
   inputs:
+    stage:
+      default: test
+      description: "Pipeline stage for both KCL artifact jobs."
     job-name:
       default: kcl-artifacts
       description: "Job name to use after the component merges into the consuming pipeline."
@@ -35,6 +38,7 @@ spec:
       description: "Camera padding passed to zoo kcl snapshot."
 ---
 "$[[ inputs.job-name ]]-install-zoo-cli":
+  stage: $[[ inputs.stage ]]
   image: debian:bookworm-slim
   before_script:
     - apt-get update
@@ -142,6 +146,7 @@ spec:
       - .kcl-tools/bin/zoo
 
 "$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
   image: python:3.12-slim
   needs:
     - job: "$[[ inputs.job-name ]]-install-zoo-cli"

@@ -41,6 +41,9 @@ def render_install() -> str:
     installer = (ROOT / "scripts" / "install-zoo-cli.sh").read_text(encoding="utf-8")
     body = """spec:
   inputs:
+    stage:
+      default: test
+      description: "Pipeline stage for the Zoo CLI install job."
     job-name:
       default: install-zoo-cli
       description: "Job name to use after the component merges into the consuming pipeline."
@@ -49,6 +52,7 @@ def render_install() -> str:
       description: "Optional Zoo CLI release, like v0.2.165. Empty installs the latest release."
 ---
 "$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
   image: debian:bookworm-slim
   before_script:
     - apt-get update
@@ -75,6 +79,9 @@ def render_kcl_artifacts() -> str:
     }
     body = """spec:
   inputs:
+    stage:
+      default: test
+      description: "Pipeline stage for both KCL artifact jobs."
     job-name:
       default: kcl-artifacts
       description: "Job name to use after the component merges into the consuming pipeline."
@@ -110,6 +117,7 @@ def render_kcl_artifacts() -> str:
       description: "Camera padding passed to zoo kcl snapshot."
 ---
 "$[[ inputs.job-name ]]-install-zoo-cli":
+  stage: $[[ inputs.stage ]]
   image: debian:bookworm-slim
   before_script:
     - apt-get update
@@ -126,6 +134,7 @@ def render_kcl_artifacts() -> str:
       - .kcl-tools/bin/zoo
 
 "$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
   image: python:3.12-slim
   needs:
     - job: "$[[ inputs.job-name ]]-install-zoo-cli"
