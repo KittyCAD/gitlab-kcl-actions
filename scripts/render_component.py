@@ -36,7 +36,6 @@ def heredoc_step(filename: str, content: str) -> str:
 def render_install() -> str:
     installer = (ROOT / "scripts" / "install-zoo-cli.sh").read_text(encoding="utf-8")
     body = """spec:
-  description: "Install the Zoo CLI release binary for later GitLab CI jobs."
   inputs:
     stage:
       default: test
@@ -71,7 +70,6 @@ def render_install() -> str:
 def render_kcl_artifacts() -> str:
     scripts = {name: path.read_text(encoding="utf-8") for name, path in SCRIPT_FILES.items()}
     body = """spec:
-  description: "Generate KCL STEP, glTF, physics JSON, and snapshot artifacts with the Zoo CLI."
   inputs:
     stage:
       default: test

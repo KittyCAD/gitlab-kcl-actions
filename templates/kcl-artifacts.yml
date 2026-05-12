@@ -1,5 +1,4 @@
 spec:
-  description: "Generate KCL STEP, glTF, physics JSON, and snapshot artifacts with the Zoo CLI."
   inputs:
     stage:
       default: test

@@ -1,5 +1,4 @@
 spec:
-  description: "Install the Zoo CLI release binary for later GitLab CI jobs."
   inputs:
     stage:
       default: test
