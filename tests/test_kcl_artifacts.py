@@ -43,6 +43,43 @@ class KclArtifactsTests(unittest.TestCase):
                 + "\n",
             )
 
+    def test_apply_parameters_can_override_one_of_many_parameters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            params = Path(tmp) / "parameters.kcl"
+            params.write_text(
+                "\n".join(
+                    [
+                        "export width = 20",
+                        "export height = 12",
+                        "export depth = 8",
+                        "export radius = 4",
+                        "export count = 5",
+                        "export label = \"old\"",
+                        "export enabled = false",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            kcl_artifacts.apply_parameters(params, json.dumps({"height": 99}))
+
+            self.assertEqual(
+                params.read_text(encoding="utf-8"),
+                "\n".join(
+                    [
+                        "export width = 20",
+                        "export height = 99",
+                        "export depth = 8",
+                        "export radius = 4",
+                        "export count = 5",
+                        "export label = \"old\"",
+                        "export enabled = false",
+                    ]
+                )
+                + "\n",
+            )
+
     def test_apply_parameters_fails_for_unknown_parameter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             params = Path(tmp) / "parameters.kcl"
