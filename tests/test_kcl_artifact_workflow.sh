@@ -55,13 +55,11 @@ assert manifest["assemblies"] == [
         "id": "root",
         "main_kcl": "main.kcl",
         "parameters_kcl": "parameters.kcl",
-        "metadata_json": "metadata.json",
     },
     {
         "id": "assembly-2",
         "main_kcl": "assembly-2/main.kcl",
         "parameters_kcl": "assembly-2/parameters.kcl",
-        "metadata_json": "assembly-2/metadata.json",
     },
 ]
 artifacts = set(manifest["artifacts"])

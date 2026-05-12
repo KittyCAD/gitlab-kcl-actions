@@ -493,7 +493,6 @@ def write_manifest(
             "id": assembly.id,
             "main_kcl": assembly.main_kcl,
             "parameters_kcl": assembly.parameters_kcl,
-            "metadata_json": assembly.metadata_json,
         }
         for assembly in load_assemblies(assemblies_file)
     ]
