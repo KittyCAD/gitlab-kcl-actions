@@ -1,0 +1,5 @@
+@settings(defaultLengthUnit = mm)
+
+export width = 16
+export height = 10
+export depth = 5

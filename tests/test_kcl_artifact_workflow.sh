@@ -24,13 +24,20 @@ cp -R "$repo_root/tests/fixtures/basic/." "$project/"
   KCL_PARAMETERS_JSON='{"width": 24, "depth": 6}' "$repo_root/scripts/run-kcl-artifacts.sh"
 )
 
-test -s "$project/kcl-artifacts/assembly/model.step"
-test -s "$project/kcl-artifacts/assembly/model.gltf"
-test -s "$project/kcl-artifacts/assembly/analysis.json"
-test -s "$project/kcl-artifacts/assembly/bounding-box.json"
-test -s "$project/kcl-artifacts/assembly/snapshot.png"
+test -s "$project/kcl-artifacts/assemblies/root/model.step"
+test -s "$project/kcl-artifacts/assemblies/root/model.gltf"
+test -s "$project/kcl-artifacts/assemblies/root/analysis.json"
+test -s "$project/kcl-artifacts/assemblies/root/bounding-box.json"
+test -s "$project/kcl-artifacts/assemblies/root/snapshot.png"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/model.step"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/model.gltf"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/analysis.json"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/bounding-box.json"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/snapshot.png"
 test -s "$project/kcl-artifacts/snapshots/main.png"
 test -s "$project/kcl-artifacts/snapshots/part.png"
+test -s "$project/kcl-artifacts/snapshots/assembly-2/main.png"
+test -s "$project/kcl-artifacts/snapshots/assembly-2/part.png"
 test -s "$project/kcl-artifacts/manifest.json"
 
 grep -q 'export width = 20' "$project/parameters.kcl"
@@ -41,18 +48,35 @@ import sys
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-assert manifest["main_kcl"] == "main.kcl"
-assert manifest["parameters_kcl"] == "parameters.kcl"
 assert manifest["parameters_override_keys"] == ["depth", "width"]
+assert manifest["assemblies"] == [
+    {
+        "id": "root",
+        "main_kcl": "main.kcl",
+        "parameters_kcl": "parameters.kcl",
+    },
+    {
+        "id": "assembly-2",
+        "main_kcl": "assembly-2/main.kcl",
+        "parameters_kcl": "assembly-2/parameters.kcl",
+    },
+]
 artifacts = set(manifest["artifacts"])
 expected = {
-    "assembly/analysis.json",
-    "assembly/bounding-box.json",
-    "assembly/model.gltf",
-    "assembly/model.step",
-    "assembly/snapshot.png",
+    "assemblies/root/analysis.json",
+    "assemblies/root/bounding-box.json",
+    "assemblies/root/model.gltf",
+    "assemblies/root/model.step",
+    "assemblies/root/snapshot.png",
+    "assemblies/assembly-2/analysis.json",
+    "assemblies/assembly-2/bounding-box.json",
+    "assemblies/assembly-2/model.gltf",
+    "assemblies/assembly-2/model.step",
+    "assemblies/assembly-2/snapshot.png",
     "snapshots/main.png",
     "snapshots/part.png",
+    "snapshots/assembly-2/main.png",
+    "snapshots/assembly-2/part.png",
 }
 missing = expected - artifacts
 if missing:

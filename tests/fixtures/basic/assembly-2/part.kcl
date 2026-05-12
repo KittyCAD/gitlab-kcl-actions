@@ -1,0 +1,5 @@
+import * from "parameters.kcl"
+
+part = startSketchOn(XY)
+  |> circle(center = [0, 0], radius = width / 5)
+  |> extrude(length = depth)

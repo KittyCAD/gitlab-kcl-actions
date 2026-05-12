@@ -104,31 +104,42 @@ class KclArtifactsTests(unittest.TestCase):
             with self.assertRaises(kcl_artifacts.WorkflowError):
                 kcl_artifacts.apply_parameters(params, '["nope"]')
 
-    def test_project_info_requires_single_main_and_parameters_file(self) -> None:
+    def test_project_info_lists_root_and_nested_assemblies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "main.kcl").write_text("", encoding="utf-8")
             (root / "parameters.kcl").write_text("", encoding="utf-8")
             (root / "part.kcl").write_text("", encoding="utf-8")
-            env_out = root / "project.env"
+            nested = root / "assembly-2"
+            nested.mkdir()
+            (nested / "main.kcl").write_text("", encoding="utf-8")
+            (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            (nested / "part.kcl").write_text("", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
             snapshots_out = root / "snapshots.list"
 
-            kcl_artifacts.write_project_info(root, env_out, snapshots_out)
+            kcl_artifacts.write_project_info(root, assemblies_out, snapshots_out)
 
-            self.assertIn("MAIN_KCL=main.kcl", env_out.read_text(encoding="utf-8"))
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                [
+                    "root\tmain.kcl\tparameters.kcl",
+                    "assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl",
+                ],
+            )
             self.assertEqual(
                 snapshots_out.read_text(encoding="utf-8").splitlines(),
-                ["main.kcl", "part.kcl"],
+                ["assembly-2/main.kcl", "assembly-2/part.kcl", "main.kcl", "part.kcl"],
             )
 
-    def test_project_info_fails_for_multiple_main_files(self) -> None:
+    def test_project_info_requires_parameters_next_to_each_main_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "main.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
             nested = root / "nested"
             nested.mkdir()
             (nested / "main.kcl").write_text("", encoding="utf-8")
-            (root / "parameters.kcl").write_text("", encoding="utf-8")
 
             with self.assertRaises(kcl_artifacts.WorkflowError):
                 kcl_artifacts.write_project_info(root, root / "env", root / "snapshots")

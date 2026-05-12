@@ -73,6 +73,38 @@ GitLab evaluates `spec:inputs` when the pipeline is created. Per GitLab's
 input limits, the string inside an interpolation block must stay under 1 KB, so
 keep `parameters_json` to small sweep-style overrides.
 
+Expose that JSON as a pipeline input if you want to trigger parameter sweeps
+with `curl`:
+
+```yaml
+spec:
+  inputs:
+    kcl_parameters_json:
+      type: string
+      default: "{}"
+      description: "JSON overrides for exported values in parameters.kcl."
+---
+
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
+    inputs:
+      parameters_json: '$[[ inputs.kcl_parameters_json ]]'
+```
+
+Then trigger the pipeline with GitLab's pipeline trigger API:
+
+```sh
+curl --fail --request POST \
+  --form "token=$GITLAB_TRIGGER_TOKEN" \
+  --form "ref=main" \
+  --form 'inputs[kcl_parameters_json]={"width":24,"depth":6}' \
+  "https://gitlab.example.com/api/v4/projects/123456/trigger/pipeline"
+```
+
+Use your GitLab host and project ID, and create `GITLAB_TRIGGER_TOKEN` from the
+project's pipeline trigger settings. GitLab validates the input before the
+pipeline is created.
+
 Use a non-default Zoo API host:
 
 ```yaml

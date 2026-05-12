@@ -31,21 +31,21 @@ tar \
   --exclude='./kcl-artifacts' \
   -cf - . | tar -C "$workspace" -xf -
 rm -rf "$artifact_dir"
-mkdir -p "$artifact_dir/assembly" "$artifact_dir/snapshots"
+mkdir -p "$artifact_dir/assemblies" "$artifact_dir/snapshots"
 
 cd "$workspace"
 
 python3 "$python_helper" project-info \
   --repo-root "$workspace" \
-  --env-out "$state_dir/project.env" \
+  --assemblies-out "$state_dir/assemblies.tsv" \
   --snapshots-out "$state_dir/snapshots.list"
 
-# shellcheck disable=SC1091
-source "$state_dir/project.env"
-
-python3 "$python_helper" apply-parameters \
-  --parameters-file "$PARAMETERS_KCL" \
-  --overrides-json "$parameters_json"
+while IFS=$'\t' read -r assembly_id main_kcl parameters_kcl; do
+  [ -n "$assembly_id" ] || continue
+  python3 "$python_helper" apply-parameters \
+    --parameters-file "$parameters_kcl" \
+    --overrides-json "$parameters_json"
+done < "$state_dir/assemblies.tsv"
 
 python3 "$python_helper" metadata-env \
   --metadata-file "$workspace/metadata.json" \
@@ -100,31 +100,18 @@ write_zoo_output() {
   done
 }
 
-run_zoo "${zoo_cmd[@]}" kcl lint "$MAIN_KCL"
-
-write_zoo_output "$artifact_dir/assembly/analysis.json" \
-  "${zoo_cmd[@]}" kcl analyze \
-  --format json \
-  --material-density "$MATERIAL_DENSITY" \
-  --material-density-unit "$MATERIAL_DENSITY_UNIT" \
-  --mass-output-unit "$MASS_OUTPUT_UNIT" \
-  --volume-output-unit "$VOLUME_OUTPUT_UNIT" \
-  --density-output-unit "$DENSITY_OUTPUT_UNIT" \
-  --surface-area-output-unit "$SURFACE_AREA_OUTPUT_UNIT" \
-  --center-of-mass-output-unit "$CENTER_OF_MASS_OUTPUT_UNIT" \
-  "$MAIN_KCL"
-
 export_one() {
   local format="$1"
   local extension="$2"
-  local destination="$3"
-  local export_dir="${state_dir}/export-${format}"
+  local main_kcl="$3"
+  local export_dir="$4"
+  local destination="$5"
 
   mkdir -p "$export_dir"
   run_zoo "${zoo_cmd[@]}" kcl export \
     --deterministic \
     --output-format "$format" \
-    "$MAIN_KCL" \
+    "$main_kcl" \
     "$export_dir"
 
   exported_count=0
@@ -140,22 +127,44 @@ export_one() {
   mv "$exported_file" "$destination"
 }
 
-export_one step step "$artifact_dir/assembly/model.step"
-export_one gltf gltf "$artifact_dir/assembly/model.gltf"
+assembly_index=0
+while IFS=$'\t' read -r assembly_id main_kcl parameters_kcl; do
+  [ -n "$assembly_id" ] || continue
+  assembly_index=$((assembly_index + 1))
+  assembly_dir="$artifact_dir/assemblies/$assembly_id"
+  mkdir -p "$assembly_dir"
 
-write_zoo_output "$artifact_dir/assembly/bounding-box.json" \
-  "${zoo_cmd[@]}" kcl bounding-box \
-  --format json \
-  --output-unit "$BOUNDING_BOX_OUTPUT_UNIT" \
-  "$MAIN_KCL"
+  run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl"
 
-run_zoo "${zoo_cmd[@]}" kcl snapshot \
-  --output-format png \
-  --angle "$snapshot_angle" \
-  --camera-style "$camera_style" \
-  --camera-padding "$camera_padding" \
-  "$MAIN_KCL" \
-  "$artifact_dir/assembly/snapshot.png"
+  write_zoo_output "$assembly_dir/analysis.json" \
+    "${zoo_cmd[@]}" kcl analyze \
+    --format json \
+    --material-density "$MATERIAL_DENSITY" \
+    --material-density-unit "$MATERIAL_DENSITY_UNIT" \
+    --mass-output-unit "$MASS_OUTPUT_UNIT" \
+    --volume-output-unit "$VOLUME_OUTPUT_UNIT" \
+    --density-output-unit "$DENSITY_OUTPUT_UNIT" \
+    --surface-area-output-unit "$SURFACE_AREA_OUTPUT_UNIT" \
+    --center-of-mass-output-unit "$CENTER_OF_MASS_OUTPUT_UNIT" \
+    "$main_kcl"
+
+  export_one step step "$main_kcl" "$state_dir/export-step-${assembly_index}" "$assembly_dir/model.step"
+  export_one gltf gltf "$main_kcl" "$state_dir/export-gltf-${assembly_index}" "$assembly_dir/model.gltf"
+
+  write_zoo_output "$assembly_dir/bounding-box.json" \
+    "${zoo_cmd[@]}" kcl bounding-box \
+    --format json \
+    --output-unit "$BOUNDING_BOX_OUTPUT_UNIT" \
+    "$main_kcl"
+
+  run_zoo "${zoo_cmd[@]}" kcl snapshot \
+    --output-format png \
+    --angle "$snapshot_angle" \
+    --camera-style "$camera_style" \
+    --camera-padding "$camera_padding" \
+    "$main_kcl" \
+    "$assembly_dir/snapshot.png"
+done < "$state_dir/assemblies.tsv"
 
 while IFS= read -r snapshot_input; do
   [[ -n "$snapshot_input" ]] || continue
@@ -172,8 +181,7 @@ done < "$state_dir/snapshots.list"
 
 python3 "$python_helper" write-manifest \
   --artifact-dir "$artifact_dir" \
-  --main-kcl "$MAIN_KCL" \
-  --parameters-kcl "$PARAMETERS_KCL" \
+  --assemblies-file "$state_dir/assemblies.tsv" \
   --zoo-version "$zoo_version" \
   --host "$host" \
   --parameters-json "$parameters_json"

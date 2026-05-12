@@ -158,7 +158,11 @@ def relative_posix(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def find_single_named_file(repo_root: Path, filename: str) -> Path:
+def find_named_files(repo_root: Path, filename: str) -> list[Path]:
+    return [path for path in walk_kcl_files(repo_root) if path.name == filename]
+
+
+def find_required_named_file(repo_root: Path, filename: str) -> Path:
     matches = [path for path in walk_kcl_files(repo_root) if path.name == filename]
     if not matches:
         fail(f"required {filename} file was not found")
@@ -168,23 +172,40 @@ def find_single_named_file(repo_root: Path, filename: str) -> Path:
     return matches[0]
 
 
+def assembly_id_for_main(main_kcl: Path, repo_root: Path) -> str:
+    relative_dir = main_kcl.parent.relative_to(repo_root).as_posix()
+    return "root" if relative_dir == "." else relative_dir
+
+
 def write_project_info(repo_root: Path, env_out: Path, snapshots_out: Path) -> None:
     repo_root = repo_root.resolve()
-    main_kcl = find_single_named_file(repo_root, "main.kcl")
-    parameters_kcl = find_single_named_file(repo_root, "parameters.kcl")
+    main_files = find_named_files(repo_root, "main.kcl")
+    if not main_files:
+        fail("required main.kcl file was not found")
+
+    assemblies: list[tuple[str, Path, Path]] = []
+    for main_kcl in main_files:
+        parameters_kcl = main_kcl.parent / "parameters.kcl"
+        if not parameters_kcl.is_file():
+            fail(f"required parameters.kcl file was not found next to {relative_posix(main_kcl, repo_root)}")
+        assemblies.append((assembly_id_for_main(main_kcl, repo_root), main_kcl, parameters_kcl))
 
     snapshot_files = [
-        path for path in walk_kcl_files(repo_root) if path.resolve() != parameters_kcl.resolve()
+        path for path in walk_kcl_files(repo_root) if path.name != "parameters.kcl"
     ]
 
     env_out.write_text(
-        "\n".join(
-            [
-                f"MAIN_KCL={shlex.quote(relative_posix(main_kcl, repo_root))}",
-                f"PARAMETERS_KCL={shlex.quote(relative_posix(parameters_kcl, repo_root))}",
-            ]
-        )
-        + "\n",
+        "".join(
+            "\t".join(
+                [
+                    assembly_id,
+                    relative_posix(main_kcl, repo_root),
+                    relative_posix(parameters_kcl, repo_root),
+                ]
+            )
+            + "\n"
+            for assembly_id, main_kcl, parameters_kcl in assemblies
+        ),
         encoding="utf-8",
     )
     snapshots_out.write_text(
@@ -234,21 +255,31 @@ def write_metadata_env(metadata_file: Path, env_out: Path) -> None:
 
 def write_manifest(
     artifact_dir: Path,
-    main_kcl: str,
-    parameters_kcl: str,
+    assemblies_file: Path,
     zoo_version: str,
     host: str,
     parameters_json: str,
 ) -> None:
     artifact_dir = artifact_dir.resolve()
+    assemblies = []
+    for line in assemblies_file.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        assembly_id, main_kcl, parameters_kcl = line.split("\t")
+        assemblies.append(
+            {
+                "id": assembly_id,
+                "main_kcl": main_kcl,
+                "parameters_kcl": parameters_kcl,
+            }
+        )
     files = sorted(
         path.relative_to(artifact_dir).as_posix()
         for path in artifact_dir.rglob("*")
         if path.is_file() and path.name != "manifest.json"
     )
     manifest = {
-        "main_kcl": main_kcl,
-        "parameters_kcl": parameters_kcl,
+        "assemblies": assemblies,
         "zoo_version": zoo_version,
         "host": host or None,
         "parameters_override_keys": sorted(load_json_object(parameters_json, "parameters_json")),
@@ -270,7 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     info_parser = subparsers.add_parser("project-info")
     info_parser.add_argument("--repo-root", required=True, type=Path)
-    info_parser.add_argument("--env-out", required=True, type=Path)
+    info_parser.add_argument("--assemblies-out", required=True, type=Path)
     info_parser.add_argument("--snapshots-out", required=True, type=Path)
 
     metadata_parser = subparsers.add_parser("metadata-env")
@@ -279,8 +310,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     manifest_parser = subparsers.add_parser("write-manifest")
     manifest_parser.add_argument("--artifact-dir", required=True, type=Path)
-    manifest_parser.add_argument("--main-kcl", required=True)
-    manifest_parser.add_argument("--parameters-kcl", required=True)
+    manifest_parser.add_argument("--assemblies-file", required=True, type=Path)
     manifest_parser.add_argument("--zoo-version", required=True)
     manifest_parser.add_argument("--host", default="")
     manifest_parser.add_argument("--parameters-json", required=True)
@@ -296,14 +326,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "apply-parameters":
             apply_parameters(args.parameters_file, args.overrides_json)
         elif args.command == "project-info":
-            write_project_info(args.repo_root, args.env_out, args.snapshots_out)
+            write_project_info(args.repo_root, args.assemblies_out, args.snapshots_out)
         elif args.command == "metadata-env":
             write_metadata_env(args.metadata_file, args.env_out)
         elif args.command == "write-manifest":
             write_manifest(
                 args.artifact_dir,
-                args.main_kcl,
-                args.parameters_kcl,
+                args.assemblies_file,
                 args.zoo_version,
                 args.host,
                 args.parameters_json,
