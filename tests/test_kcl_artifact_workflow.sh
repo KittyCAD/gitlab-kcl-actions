@@ -47,6 +47,7 @@ import json
 import sys
 from pathlib import Path
 
+artifact_root = Path(sys.argv[1]).parent
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert manifest["parameters_override_keys"] == ["depth", "width"]
 assert manifest["assemblies"] == [
@@ -81,4 +82,27 @@ expected = {
 missing = expected - artifacts
 if missing:
     raise SystemExit(f"manifest missing artifacts: {sorted(missing)}")
+
+for assembly in ("root", "assembly-2"):
+    analysis = json.loads(
+        (artifact_root / "assemblies" / assembly / "analysis.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert analysis["mass"]["output_unit"] == "kg"
+    assert analysis["volume"]["output_unit"] == "cm3"
+    assert analysis["density"]["output_unit"] == "kg:m3"
+    assert analysis["surface_area"]["output_unit"] == "cm2"
+    assert analysis["center_of_mass"]["output_unit"] == "mm"
+    assert sorted(analysis["bounding_box"]) == ["center", "dimensions"]
+
+    bounding_box = json.loads(
+        (artifact_root / "assemblies" / assembly / "bounding-box.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert bounding_box["output_unit"] == "mm"
+    assert sorted(bounding_box) == ["center", "dimensions", "output_unit"]
+    assert sorted(bounding_box["center"]) == ["x", "y", "z"]
+    assert sorted(bounding_box["dimensions"]) == ["x", "y", "z"]
 PY

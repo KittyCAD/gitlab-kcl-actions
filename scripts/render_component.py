@@ -81,7 +81,10 @@ def render_kcl_artifacts() -> str:
       description: "Job name to use after the component merges into the consuming pipeline."
     parameters_json:
       default: "{}"
-      description: "JSON object of values to replace in parameters.kcl before running Zoo."
+      description: "JSON object of values to replace in sibling parameters.kcl files before running Zoo."
+    main_kcl_paths:
+      default: "[]"
+      description: "Optional JSON string or array of main.kcl paths to process. Empty processes every main.kcl."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."
@@ -113,6 +116,8 @@ def render_kcl_artifacts() -> str:
   variables:
     KCL_PARAMETERS_JSON: |-
       $[[ inputs.parameters_json ]]
+    KCL_MAIN_KCL_PATHS: |-
+      $[[ inputs.main_kcl_paths ]]
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'

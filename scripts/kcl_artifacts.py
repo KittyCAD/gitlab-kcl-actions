@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shlex
 import sys
@@ -54,6 +55,13 @@ class WorkflowError(Exception):
     """A user-facing workflow error."""
 
 
+@dataclass(frozen=True)
+class Assembly:
+    id: str
+    main_kcl: str
+    parameters_kcl: str
+
+
 def fail(message: str) -> None:
     raise WorkflowError(message)
 
@@ -69,6 +77,44 @@ def load_json_object(raw: str, description: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         fail(f"{description} must be a JSON object")
     return value
+
+
+def load_json_string_list(raw: str, description: str) -> list[str]:
+    text = raw.strip()
+    if not text:
+        return []
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as err:
+        fail(f"{description} is not valid JSON: {err}")
+
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+        values = value
+    else:
+        fail(f"{description} must be a JSON string or array of strings")
+
+    output: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        path = normalize_main_kcl_path(item)
+        if path in seen:
+            fail(f"{description} contains duplicate path: {path}")
+        seen.add(path)
+        output.append(path)
+    return output
+
+
+def normalize_main_kcl_path(raw_path: str) -> str:
+    path = PurePosixPath(raw_path)
+    if raw_path == "" or path.is_absolute():
+        fail(f"main.kcl path must be relative: {raw_path!r}")
+    if any(part in {"", ".", ".."} for part in path.parts):
+        fail(f"main.kcl path must not contain empty, '.', or '..' parts: {raw_path!r}")
+    if path.name != "main.kcl":
+        fail(f"main.kcl path must point to a file named main.kcl: {raw_path!r}")
+    return path.as_posix()
 
 
 def kcl_literal(value: Any) -> str:
@@ -96,11 +142,10 @@ def kcl_literal(value: Any) -> str:
     fail(f"unsupported JSON value type: {type(value).__name__}")
 
 
-def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
+def apply_parameter_values(parameters_file: Path, overrides: dict[str, Any]) -> None:
     if not parameters_file.is_file():
         fail(f"required parameters.kcl file does not exist: {parameters_file}")
 
-    overrides = load_json_object(overrides_json, "parameters_json")
     if not overrides:
         return
 
@@ -144,6 +189,24 @@ def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
     parameters_file.write_text("".join(output), encoding="utf-8")
 
 
+def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
+    overrides = load_json_object(overrides_json, "parameters_json")
+    apply_parameter_values(parameters_file, overrides)
+
+
+def exported_parameter_names(parameters_file: Path) -> set[str]:
+    if not parameters_file.is_file():
+        fail(f"required parameters.kcl file does not exist: {parameters_file}")
+
+    names: set[str] = set()
+    lines = parameters_file.read_text(encoding="utf-8").splitlines()
+    for line in lines:
+        match = ASSIGNMENT_RE.match(line)
+        if match:
+            names.add(match.group("name"))
+    return names
+
+
 def walk_kcl_files(repo_root: Path) -> list[Path]:
     files: list[Path] = []
     for root, dirs, filenames in os.walk(repo_root):
@@ -162,39 +225,102 @@ def find_named_files(repo_root: Path, filename: str) -> list[Path]:
     return [path for path in walk_kcl_files(repo_root) if path.name == filename]
 
 
-def find_required_named_file(repo_root: Path, filename: str) -> Path:
-    matches = [path for path in walk_kcl_files(repo_root) if path.name == filename]
-    if not matches:
-        fail(f"required {filename} file was not found")
-    if len(matches) > 1:
-        formatted = ", ".join(relative_posix(path, repo_root) for path in matches)
-        fail(f"expected exactly one {filename}, found {len(matches)}: {formatted}")
-    return matches[0]
-
-
 def assembly_id_for_main(main_kcl: Path, repo_root: Path) -> str:
     relative_dir = main_kcl.parent.relative_to(repo_root).as_posix()
     return "root" if relative_dir == "." else relative_dir
 
 
-def write_project_info(repo_root: Path, env_out: Path, snapshots_out: Path) -> None:
-    repo_root = repo_root.resolve()
-    main_files = find_named_files(repo_root, "main.kcl")
-    if not main_files:
-        fail("required main.kcl file was not found")
+def contains_path(parent: Path, child: Path) -> bool:
+    try:
+        child.relative_to(parent)
+    except ValueError:
+        return False
+    return True
 
-    assemblies: list[tuple[str, Path, Path]] = []
-    for main_kcl in main_files:
-        parameters_kcl = main_kcl.parent / "parameters.kcl"
-        if not parameters_kcl.is_file():
-            fail(f"required parameters.kcl file was not found next to {relative_posix(main_kcl, repo_root)}")
-        assemblies.append((assembly_id_for_main(main_kcl, repo_root), main_kcl, parameters_kcl))
 
+def owning_assembly_dir(path: Path, assembly_dirs: set[Path]) -> Path | None:
+    matches = [
+        assembly_dir
+        for assembly_dir in assembly_dirs
+        if contains_path(assembly_dir, path)
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda item: len(item.parts))
+
+
+def snapshot_files_for_assemblies(
+    repo_root: Path,
+    selected_main_files: list[Path],
+    all_main_files: list[Path],
+    selected_from_input: bool,
+) -> list[Path]:
     snapshot_files = [
         path for path in walk_kcl_files(repo_root) if path.name != "parameters.kcl"
     ]
+    if not selected_from_input:
+        return snapshot_files
 
-    env_out.write_text(
+    selected_dirs = {path.parent for path in selected_main_files}
+    assembly_dirs = {path.parent for path in all_main_files}
+    return [
+        path
+        for path in snapshot_files
+        if owning_assembly_dir(path, assembly_dirs) in selected_dirs
+    ]
+
+
+def write_project_info(
+    repo_root: Path,
+    assemblies_out: Path,
+    snapshots_out: Path,
+    main_kcl_paths_json: str = "[]",
+) -> None:
+    repo_root = repo_root.resolve()
+    all_main_files = find_named_files(repo_root, "main.kcl")
+    if not all_main_files:
+        fail("required main.kcl file was not found")
+
+    selected_paths = load_json_string_list(main_kcl_paths_json, "main_kcl_paths")
+    selected_from_input = bool(selected_paths)
+    if selected_paths:
+        main_files_by_path = {
+            relative_posix(main_kcl, repo_root): main_kcl for main_kcl in all_main_files
+        }
+        missing = [path for path in selected_paths if path not in main_files_by_path]
+        if missing:
+            fail(
+                "main_kcl_paths referenced missing main.kcl file(s): "
+                + ", ".join(missing)
+            )
+        main_files = [main_files_by_path[path] for path in selected_paths]
+    else:
+        main_files = all_main_files
+
+    assemblies: list[tuple[str, Path, Path]] = []
+    assembly_ids: set[str] = set()
+    for main_kcl in main_files:
+        parameters_kcl = main_kcl.parent / "parameters.kcl"
+        if not parameters_kcl.is_file():
+            fail(
+                "required parameters.kcl file was not found next to "
+                f"{relative_posix(main_kcl, repo_root)}"
+            )
+
+        assembly_id = assembly_id_for_main(main_kcl, repo_root)
+        if assembly_id in assembly_ids:
+            fail(f"assembly id {assembly_id!r} is not unique")
+        assembly_ids.add(assembly_id)
+        assemblies.append((assembly_id, main_kcl, parameters_kcl))
+
+    snapshot_files = snapshot_files_for_assemblies(
+        repo_root,
+        main_files,
+        all_main_files,
+        selected_from_input,
+    )
+
+    assemblies_out.write_text(
         "".join(
             "\t".join(
                 [
@@ -212,6 +338,52 @@ def write_project_info(repo_root: Path, env_out: Path, snapshots_out: Path) -> N
         "".join(relative_posix(path, repo_root) + "\n" for path in snapshot_files),
         encoding="utf-8",
     )
+
+
+def load_assemblies(assemblies_file: Path) -> list[Assembly]:
+    assemblies: list[Assembly] = []
+    for line in assemblies_file.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        fields = line.split("\t", 2)
+        if len(fields) != 3:
+            fail(f"invalid assemblies file row: {line!r}")
+        assemblies.append(Assembly(*fields))
+    if not assemblies:
+        fail("assemblies file did not contain any main.kcl entries")
+    return assemblies
+
+
+def apply_project_parameters(
+    repo_root: Path,
+    assemblies_file: Path,
+    overrides_json: str,
+) -> None:
+    overrides = load_json_object(overrides_json, "parameters_json")
+    if not overrides:
+        return
+
+    repo_root = repo_root.resolve()
+    assemblies = load_assemblies(assemblies_file)
+    names_by_file: dict[Path, set[str]] = {}
+    seen: set[str] = set()
+    for assembly in assemblies:
+        parameters_file = repo_root / assembly.parameters_kcl
+        names = exported_parameter_names(parameters_file)
+        names_by_file[parameters_file] = names
+        seen.update(name for name in overrides if name in names)
+
+    missing = sorted(set(overrides) - seen)
+    if missing:
+        fail(
+            "parameters_json referenced parameter(s) not exported in any "
+            "parameters.kcl: "
+            + ", ".join(missing)
+        )
+
+    for parameters_file, names in names_by_file.items():
+        selected = {name: value for name, value in overrides.items() if name in names}
+        apply_parameter_values(parameters_file, selected)
 
 
 def validate_metadata(metadata_file: Path) -> dict[str, Any]:
@@ -253,6 +425,41 @@ def write_metadata_env(metadata_file: Path, env_out: Path) -> None:
     )
 
 
+def write_bounding_box_json(
+    analysis_file: Path,
+    output_file: Path,
+    output_unit: str,
+) -> None:
+    try:
+        analysis = json.loads(analysis_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as err:
+        fail(f"{analysis_file} is not valid JSON: {err}")
+    if not isinstance(analysis, dict):
+        fail(f"{analysis_file} must contain a JSON object")
+
+    bounding_box = analysis.get("bounding_box")
+    if not isinstance(bounding_box, dict):
+        fail(f"{analysis_file} is missing object field: bounding_box")
+    for field in ("center", "dimensions"):
+        value = bounding_box.get(field)
+        if not isinstance(value, dict):
+            fail(f"{analysis_file} bounding_box.{field} must be an object")
+        for axis in ("x", "y", "z"):
+            coordinate = value.get(axis)
+            if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+                fail(f"{analysis_file} bounding_box.{field}.{axis} must be a number")
+
+    output = {
+        "center": bounding_box["center"],
+        "dimensions": bounding_box["dimensions"],
+        "output_unit": output_unit,
+    }
+    output_file.write_text(
+        json.dumps(output, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def write_manifest(
     artifact_dir: Path,
     assemblies_file: Path,
@@ -261,18 +468,14 @@ def write_manifest(
     parameters_json: str,
 ) -> None:
     artifact_dir = artifact_dir.resolve()
-    assemblies = []
-    for line in assemblies_file.read_text(encoding="utf-8").splitlines():
-        if not line:
-            continue
-        assembly_id, main_kcl, parameters_kcl = line.split("\t")
-        assemblies.append(
-            {
-                "id": assembly_id,
-                "main_kcl": main_kcl,
-                "parameters_kcl": parameters_kcl,
-            }
-        )
+    assemblies = [
+        {
+            "id": assembly.id,
+            "main_kcl": assembly.main_kcl,
+            "parameters_kcl": assembly.parameters_kcl,
+        }
+        for assembly in load_assemblies(assemblies_file)
+    ]
     files = sorted(
         path.relative_to(artifact_dir).as_posix()
         for path in artifact_dir.rglob("*")
@@ -282,7 +485,9 @@ def write_manifest(
         "assemblies": assemblies,
         "zoo_version": zoo_version,
         "host": host or None,
-        "parameters_override_keys": sorted(load_json_object(parameters_json, "parameters_json")),
+        "parameters_override_keys": sorted(
+            load_json_object(parameters_json, "parameters_json")
+        ),
         "artifacts": files,
     }
     (artifact_dir / "manifest.json").write_text(
@@ -299,14 +504,25 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--parameters-file", required=True, type=Path)
     apply_parser.add_argument("--overrides-json", required=True)
 
+    apply_project_parser = subparsers.add_parser("apply-project-parameters")
+    apply_project_parser.add_argument("--repo-root", required=True, type=Path)
+    apply_project_parser.add_argument("--assemblies-file", required=True, type=Path)
+    apply_project_parser.add_argument("--overrides-json", required=True)
+
     info_parser = subparsers.add_parser("project-info")
     info_parser.add_argument("--repo-root", required=True, type=Path)
     info_parser.add_argument("--assemblies-out", required=True, type=Path)
     info_parser.add_argument("--snapshots-out", required=True, type=Path)
+    info_parser.add_argument("--main-kcl-paths", default="[]")
 
     metadata_parser = subparsers.add_parser("metadata-env")
     metadata_parser.add_argument("--metadata-file", required=True, type=Path)
     metadata_parser.add_argument("--env-out", required=True, type=Path)
+
+    bounding_box_parser = subparsers.add_parser("bounding-box-json")
+    bounding_box_parser.add_argument("--analysis-file", required=True, type=Path)
+    bounding_box_parser.add_argument("--output-file", required=True, type=Path)
+    bounding_box_parser.add_argument("--output-unit", required=True)
 
     manifest_parser = subparsers.add_parser("write-manifest")
     manifest_parser.add_argument("--artifact-dir", required=True, type=Path)
@@ -325,10 +541,27 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "apply-parameters":
             apply_parameters(args.parameters_file, args.overrides_json)
+        elif args.command == "apply-project-parameters":
+            apply_project_parameters(
+                args.repo_root,
+                args.assemblies_file,
+                args.overrides_json,
+            )
         elif args.command == "project-info":
-            write_project_info(args.repo_root, args.assemblies_out, args.snapshots_out)
+            write_project_info(
+                args.repo_root,
+                args.assemblies_out,
+                args.snapshots_out,
+                args.main_kcl_paths,
+            )
         elif args.command == "metadata-env":
             write_metadata_env(args.metadata_file, args.env_out)
+        elif args.command == "bounding-box-json":
+            write_bounding_box_json(
+                args.analysis_file,
+                args.output_file,
+                args.output_unit,
+            )
         elif args.command == "write-manifest":
             write_manifest(
                 args.artifact_dir,

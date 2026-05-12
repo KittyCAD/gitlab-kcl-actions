@@ -11,6 +11,10 @@ parameters_json="${KCL_PARAMETERS_JSON:-}"
 if [[ -z "$parameters_json" ]]; then
   parameters_json="{}"
 fi
+main_kcl_paths="${KCL_MAIN_KCL_PATHS:-}"
+if [[ -z "$main_kcl_paths" ]]; then
+  main_kcl_paths="[]"
+fi
 host="${KCL_ZOO_HOST:-}"
 snapshot_angle="${KCL_SNAPSHOT_ANGLE:-iso}"
 camera_style="${KCL_CAMERA_STYLE:-ortho}"
@@ -38,14 +42,13 @@ cd "$workspace"
 python3 "$python_helper" project-info \
   --repo-root "$workspace" \
   --assemblies-out "$state_dir/assemblies.tsv" \
-  --snapshots-out "$state_dir/snapshots.list"
+  --snapshots-out "$state_dir/snapshots.list" \
+  --main-kcl-paths "$main_kcl_paths"
 
-while IFS=$'\t' read -r assembly_id main_kcl parameters_kcl; do
-  [ -n "$assembly_id" ] || continue
-  python3 "$python_helper" apply-parameters \
-    --parameters-file "$parameters_kcl" \
-    --overrides-json "$parameters_json"
-done < "$state_dir/assemblies.tsv"
+python3 "$python_helper" apply-project-parameters \
+  --repo-root "$workspace" \
+  --assemblies-file "$state_dir/assemblies.tsv" \
+  --overrides-json "$parameters_json"
 
 python3 "$python_helper" metadata-env \
   --metadata-file "$workspace/metadata.json" \
@@ -63,11 +66,13 @@ zoo_version="$(zoo version)"
 
 run_zoo() {
   local attempt=1
+  local status=0
   while true; do
     if "$@"; then
       return 0
+    else
+      status="$?"
     fi
-    local status="$?"
     if [ "$attempt" -ge "$zoo_attempts" ]; then
       return "$status"
     fi
@@ -82,14 +87,16 @@ write_zoo_output() {
   shift
   local tmp="${state_dir}/$(basename "$destination").tmp"
   local attempt=1
+  local status=0
 
   while true; do
     rm -f "$tmp"
     if "$@" > "$tmp"; then
       mv "$tmp" "$destination"
       return 0
+    else
+      status="$?"
     fi
-    local status="$?"
     rm -f "$tmp"
     if [ "$attempt" -ge "$zoo_attempts" ]; then
       return "$status"
@@ -127,16 +134,12 @@ export_one() {
   mv "$exported_file" "$destination"
 }
 
-assembly_index=0
-while IFS=$'\t' read -r assembly_id main_kcl parameters_kcl; do
-  [ -n "$assembly_id" ] || continue
-  assembly_index=$((assembly_index + 1))
-  assembly_dir="$artifact_dir/assemblies/$assembly_id"
-  mkdir -p "$assembly_dir"
+write_analysis() {
+  local destination="$1"
+  local main_kcl="$2"
+  local center_of_mass_output_unit="$3"
 
-  run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl"
-
-  write_zoo_output "$assembly_dir/analysis.json" \
+  write_zoo_output "$destination" \
     "${zoo_cmd[@]}" kcl analyze \
     --format json \
     --material-density "$MATERIAL_DENSITY" \
@@ -145,17 +148,44 @@ while IFS=$'\t' read -r assembly_id main_kcl parameters_kcl; do
     --volume-output-unit "$VOLUME_OUTPUT_UNIT" \
     --density-output-unit "$DENSITY_OUTPUT_UNIT" \
     --surface-area-output-unit "$SURFACE_AREA_OUTPUT_UNIT" \
-    --center-of-mass-output-unit "$CENTER_OF_MASS_OUTPUT_UNIT" \
+    --center-of-mass-output-unit "$center_of_mass_output_unit" \
     "$main_kcl"
+}
 
-  export_one step step "$main_kcl" "$state_dir/export-step-${assembly_index}" "$assembly_dir/model.step"
-  export_one gltf gltf "$main_kcl" "$state_dir/export-gltf-${assembly_index}" "$assembly_dir/model.gltf"
+assembly_index=0
+while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl; do
+  [ -n "$assembly_id" ] || continue
+  assembly_index=$((assembly_index + 1))
+  assembly_dir="$artifact_dir/assemblies/$assembly_id"
+  mkdir -p "$assembly_dir"
 
-  write_zoo_output "$assembly_dir/bounding-box.json" \
-    "${zoo_cmd[@]}" kcl bounding-box \
-    --format json \
-    --output-unit "$BOUNDING_BOX_OUTPUT_UNIT" \
-    "$main_kcl"
+  run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl"
+
+  analysis_file="$assembly_dir/analysis.json"
+  write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT"
+
+  export_one \
+    step \
+    step \
+    "$main_kcl" \
+    "$state_dir/export-step-${assembly_index}" \
+    "$assembly_dir/model.step"
+  export_one \
+    gltf \
+    gltf \
+    "$main_kcl" \
+    "$state_dir/export-gltf-${assembly_index}" \
+    "$assembly_dir/model.gltf"
+
+  bounding_box_analysis_file="$analysis_file"
+  if [[ "$BOUNDING_BOX_OUTPUT_UNIT" != "$CENTER_OF_MASS_OUTPUT_UNIT" ]]; then
+    bounding_box_analysis_file="${state_dir}/bounding-box-analysis-${assembly_index}.json"
+    write_analysis "$bounding_box_analysis_file" "$main_kcl" "$BOUNDING_BOX_OUTPUT_UNIT"
+  fi
+  python3 "$python_helper" bounding-box-json \
+    --analysis-file "$bounding_box_analysis_file" \
+    --output-file "$assembly_dir/bounding-box.json" \
+    --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
 
   run_zoo "${zoo_cmd[@]}" kcl snapshot \
     --output-format png \

@@ -129,7 +129,12 @@ class KclArtifactsTests(unittest.TestCase):
             )
             self.assertEqual(
                 snapshots_out.read_text(encoding="utf-8").splitlines(),
-                ["assembly-2/main.kcl", "assembly-2/part.kcl", "main.kcl", "part.kcl"],
+                [
+                    "main.kcl",
+                    "part.kcl",
+                    "assembly-2/main.kcl",
+                    "assembly-2/part.kcl",
+                ],
             )
 
     def test_project_info_requires_parameters_next_to_each_main_file(self) -> None:
@@ -142,7 +147,111 @@ class KclArtifactsTests(unittest.TestCase):
             (nested / "main.kcl").write_text("", encoding="utf-8")
 
             with self.assertRaises(kcl_artifacts.WorkflowError):
-                kcl_artifacts.write_project_info(root, root / "env", root / "snapshots")
+                kcl_artifacts.write_project_info(
+                    root,
+                    root / "env",
+                    root / "snapshots",
+                )
+
+    def test_project_info_can_filter_to_selected_main_kcl_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "main.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
+            (root / "part.kcl").write_text("", encoding="utf-8")
+            nested = root / "assembly-2"
+            nested.mkdir()
+            (nested / "main.kcl").write_text("", encoding="utf-8")
+            (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            (nested / "part.kcl").write_text("", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                json.dumps(["assembly-2/main.kcl"]),
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                ["assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl"],
+            )
+            self.assertEqual(
+                snapshots_out.read_text(encoding="utf-8").splitlines(),
+                ["assembly-2/main.kcl", "assembly-2/part.kcl"],
+            )
+
+    def test_project_info_rejects_missing_selected_main_kcl_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "main.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
+
+            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "missing"):
+                kcl_artifacts.write_project_info(
+                    root,
+                    root / "assemblies.tsv",
+                    root / "snapshots.list",
+                    json.dumps(["missing/main.kcl"]),
+                )
+
+    def test_project_parameters_update_each_matching_parameters_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root_params = root / "parameters.kcl"
+            root_params.write_text(
+                "export width = 20\nexport height = 12\n",
+                encoding="utf-8",
+            )
+            nested = root / "nested"
+            nested.mkdir()
+            nested_params = nested / "parameters.kcl"
+            nested_params.write_text(
+                "export height = 10\nexport depth = 5\n",
+                encoding="utf-8",
+            )
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text(
+                "\n".join(
+                    [
+                        "root\tmain.kcl\tparameters.kcl",
+                        "nested\tnested/main.kcl\tnested/parameters.kcl",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            kcl_artifacts.apply_project_parameters(
+                root,
+                assemblies,
+                json.dumps({"width": 24, "height": 99}),
+            )
+
+            self.assertEqual(
+                root_params.read_text(encoding="utf-8"),
+                "export width = 24\nexport height = 99\n",
+            )
+            self.assertEqual(
+                nested_params.read_text(encoding="utf-8"),
+                "export height = 99\nexport depth = 5\n",
+            )
+
+    def test_project_parameters_fail_when_key_is_missing_everywhere(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "parameters.kcl").write_text("export width = 20\n", encoding="utf-8")
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text("root\tmain.kcl\tparameters.kcl\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "not exported"):
+                kcl_artifacts.apply_project_parameters(
+                    root,
+                    assemblies,
+                    json.dumps({"depth": 5}),
+                )
 
     def test_metadata_validation_requires_all_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,6 +292,34 @@ class KclArtifactsTests(unittest.TestCase):
             kcl_artifacts.write_metadata_env(metadata, env_out)
 
             self.assertIn("BOUNDING_BOX_OUTPUT_UNIT='millimeters please'", env_out.read_text())
+
+    def test_bounding_box_json_extracts_shape_from_analysis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis = root / "analysis.json"
+            analysis.write_text(
+                json.dumps(
+                    {
+                        "bounding_box": {
+                            "center": {"x": 0, "y": 1, "z": 2},
+                            "dimensions": {"x": 10, "y": 20, "z": 30},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = root / "bounding-box.json"
+
+            kcl_artifacts.write_bounding_box_json(analysis, output, "mm")
+
+            self.assertEqual(
+                json.loads(output.read_text(encoding="utf-8")),
+                {
+                    "center": {"x": 0, "y": 1, "z": 2},
+                    "dimensions": {"x": 10, "y": 20, "z": 30},
+                    "output_unit": "mm",
+                },
+            )
 
 
 if __name__ == "__main__":
