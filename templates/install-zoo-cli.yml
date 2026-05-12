@@ -9,10 +9,13 @@ spec:
     zoo_version:
       default: ""
       description: "Optional Zoo CLI release, like v0.2.165. Empty installs the latest release."
+    image:
+      default: debian:bookworm-slim
+      description: "Container image for the Zoo CLI install job. Override with a Debian-compatible mirror if your runners cannot pull Docker Hub images."
 ---
 "$[[ inputs.job-name ]]":
   stage: $[[ inputs.stage ]]
-  image: debian:bookworm-slim
+  image: $[[ inputs.image ]]
   before_script:
     - apt-get update
     - apt-get install -y --no-install-recommends ca-certificates curl coreutils

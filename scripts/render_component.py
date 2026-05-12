@@ -50,10 +50,13 @@ def render_install() -> str:
     zoo_version:
       default: ""
       description: "Optional Zoo CLI release, like v0.2.165. Empty installs the latest release."
+    image:
+      default: debian:bookworm-slim
+      description: "Container image for the Zoo CLI install job. Override with a Debian-compatible mirror if your runners cannot pull Docker Hub images."
 ---
 "$[[ inputs.job-name ]]":
   stage: $[[ inputs.stage ]]
-  image: debian:bookworm-slim
+  image: $[[ inputs.image ]]
   before_script:
     - apt-get update
     - apt-get install -y --no-install-recommends ca-certificates curl coreutils
@@ -97,6 +100,12 @@ def render_kcl_artifacts() -> str:
     zoo_version:
       default: ""
       description: "Optional Zoo CLI release, like v0.2.165. Empty installs the latest release."
+    install_image:
+      default: debian:bookworm-slim
+      description: "Container image for the Zoo CLI install job. Override with a Debian-compatible mirror if your runners cannot pull Docker Hub images."
+    artifacts_image:
+      default: python:3.12-slim
+      description: "Container image for the KCL artifact job. Override with a Python 3.12 Debian-compatible mirror if your runners cannot pull Docker Hub images."
     snapshot_angle:
       default: iso
       options:
@@ -118,7 +127,7 @@ def render_kcl_artifacts() -> str:
 ---
 "$[[ inputs.job-name ]]-install-zoo-cli":
   stage: $[[ inputs.stage ]]
-  image: debian:bookworm-slim
+  image: $[[ inputs.install_image ]]
   before_script:
     - apt-get update
     - apt-get install -y --no-install-recommends ca-certificates curl coreutils
@@ -135,7 +144,7 @@ def render_kcl_artifacts() -> str:
 
 "$[[ inputs.job-name ]]":
   stage: $[[ inputs.stage ]]
-  image: python:3.12-slim
+  image: $[[ inputs.artifacts_image ]]
   needs:
     - job: "$[[ inputs.job-name ]]-install-zoo-cli"
       artifacts: true

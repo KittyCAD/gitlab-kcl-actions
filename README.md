@@ -35,6 +35,18 @@ include:
       zoo_version: "v0.2.165"
 ```
 
+Use a mirrored image when your runners cannot pull Docker Hub directly:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/install-zoo-cli@1.0.0
+    inputs:
+      image: registry.example.com/mirrors/debian:bookworm-slim
+```
+
+The install job still expects a Debian-compatible image because it installs
+`ca-certificates`, `curl`, and `coreutils` with `apt-get`.
+
 Use the installed binary in a later job:
 
 ```yaml
@@ -141,6 +153,20 @@ include:
 If `host` is empty, the workflow does not pass `--host` and the Zoo CLI uses
 its default host/configuration. If `host` is set, every `zoo kcl ...` command
 receives that host.
+
+Use mirrored images when your runners cannot pull Docker Hub directly:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
+    inputs:
+      install_image: registry.example.com/mirrors/debian:bookworm-slim
+      artifacts_image: registry.example.com/mirrors/python:3.12-slim
+```
+
+`install_image` must be Debian-compatible. `artifacts_image` must provide
+Python 3.12 and be Debian-compatible because the artifact job also installs
+small system packages with `apt-get`.
 
 The job expects `ZOO_API_TOKEN` to be available in CI/CD variables.
 
