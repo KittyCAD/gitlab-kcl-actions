@@ -1,0 +1,10 @@
+{
+  "material_density": 7850,
+  "material_density_unit": "kg:m3",
+  "mass_output_unit": "kg",
+  "volume_output_unit": "cm3",
+  "density_output_unit": "kg:m3",
+  "surface_area_output_unit": "cm2",
+  "center_of_mass_output_unit": "mm",
+  "bounding_box_output_unit": "cm"
+}

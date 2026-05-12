@@ -8,6 +8,23 @@ import unittest
 from scripts import kcl_artifacts
 
 
+REQUIRED_METADATA = {
+    "material_density": 7850,
+    "material_density_unit": "kg:m3",
+    "mass_output_unit": "kg",
+    "volume_output_unit": "cm3",
+    "density_output_unit": "kg:m3",
+    "surface_area_output_unit": "cm2",
+    "center_of_mass_output_unit": "mm",
+    "bounding_box_output_unit": "mm",
+}
+
+
+def write_metadata(path: Path, **overrides: object) -> None:
+    metadata = REQUIRED_METADATA | overrides
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+
+
 class KclArtifactsTests(unittest.TestCase):
     def test_apply_parameters_replaces_existing_assignments(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -109,11 +126,13 @@ class KclArtifactsTests(unittest.TestCase):
             root = Path(tmp)
             (root / "main.kcl").write_text("", encoding="utf-8")
             (root / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "metadata.json")
             (root / "part.kcl").write_text("", encoding="utf-8")
             nested = root / "assembly-2"
             nested.mkdir()
             (nested / "main.kcl").write_text("", encoding="utf-8")
             (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(nested / "metadata.json")
             (nested / "part.kcl").write_text("", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
             snapshots_out = root / "snapshots.list"
@@ -123,8 +142,8 @@ class KclArtifactsTests(unittest.TestCase):
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8").splitlines(),
                 [
-                    "root\tmain.kcl\tparameters.kcl",
-                    "assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl",
+                    "root\tmain.kcl\tparameters.kcl\tmetadata.json",
+                    "assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl\tassembly-2/metadata.json",
                 ],
             )
             self.assertEqual(
@@ -142,11 +161,30 @@ class KclArtifactsTests(unittest.TestCase):
             root = Path(tmp)
             (root / "main.kcl").write_text("", encoding="utf-8")
             (root / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "metadata.json")
             nested = root / "nested"
             nested.mkdir()
             (nested / "main.kcl").write_text("", encoding="utf-8")
 
             with self.assertRaises(kcl_artifacts.WorkflowError):
+                kcl_artifacts.write_project_info(
+                    root,
+                    root / "env",
+                    root / "snapshots",
+                )
+
+    def test_project_info_requires_metadata_next_to_each_main_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "main.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "metadata.json")
+            nested = root / "nested"
+            nested.mkdir()
+            (nested / "main.kcl").write_text("", encoding="utf-8")
+            (nested / "parameters.kcl").write_text("", encoding="utf-8")
+
+            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "metadata.json"):
                 kcl_artifacts.write_project_info(
                     root,
                     root / "env",
@@ -163,6 +201,7 @@ class KclArtifactsTests(unittest.TestCase):
             nested.mkdir()
             (nested / "main.kcl").write_text("", encoding="utf-8")
             (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(nested / "metadata.json")
             (nested / "part.kcl").write_text("", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
             snapshots_out = root / "snapshots.list"
@@ -176,7 +215,9 @@ class KclArtifactsTests(unittest.TestCase):
 
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8").splitlines(),
-                ["assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl"],
+                [
+                    "assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl\tassembly-2/metadata.json"
+                ],
             )
             self.assertEqual(
                 snapshots_out.read_text(encoding="utf-8").splitlines(),
@@ -190,6 +231,7 @@ class KclArtifactsTests(unittest.TestCase):
             nested.mkdir()
             (nested / "main.kcl").write_text("", encoding="utf-8")
             (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(nested / "metadata.json")
             assemblies_out = root / "assemblies.tsv"
             snapshots_out = root / "snapshots.list"
 
@@ -202,7 +244,9 @@ class KclArtifactsTests(unittest.TestCase):
 
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8").splitlines(),
-                ["assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl"],
+                [
+                    "assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl\tassembly-2/metadata.json"
+                ],
             )
 
     def test_project_info_rejects_missing_selected_main_kcl_path(self) -> None:
@@ -238,8 +282,8 @@ class KclArtifactsTests(unittest.TestCase):
             assemblies.write_text(
                 "\n".join(
                     [
-                        "root\tmain.kcl\tparameters.kcl",
-                        "nested\tnested/main.kcl\tnested/parameters.kcl",
+                        "root\tmain.kcl\tparameters.kcl\tmetadata.json",
+                        "nested\tnested/main.kcl\tnested/parameters.kcl\tnested/metadata.json",
                     ]
                 )
                 + "\n",
@@ -266,7 +310,10 @@ class KclArtifactsTests(unittest.TestCase):
             root = Path(tmp)
             (root / "parameters.kcl").write_text("export width = 20\n", encoding="utf-8")
             assemblies = root / "assemblies.tsv"
-            assemblies.write_text("root\tmain.kcl\tparameters.kcl\n", encoding="utf-8")
+            assemblies.write_text(
+                "root\tmain.kcl\tparameters.kcl\tmetadata.json\n",
+                encoding="utf-8",
+            )
 
             with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "not exported"):
                 kcl_artifacts.apply_project_parameters(

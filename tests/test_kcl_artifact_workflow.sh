@@ -55,11 +55,13 @@ assert manifest["assemblies"] == [
         "id": "root",
         "main_kcl": "main.kcl",
         "parameters_kcl": "parameters.kcl",
+        "metadata_json": "metadata.json",
     },
     {
         "id": "assembly-2",
         "main_kcl": "assembly-2/main.kcl",
         "parameters_kcl": "assembly-2/parameters.kcl",
+        "metadata_json": "assembly-2/metadata.json",
     },
 ]
 artifacts = set(manifest["artifacts"])
@@ -83,7 +85,7 @@ missing = expected - artifacts
 if missing:
     raise SystemExit(f"manifest missing artifacts: {sorted(missing)}")
 
-for assembly in ("root", "assembly-2"):
+for assembly, bounding_box_unit in (("root", "mm"), ("assembly-2", "cm")):
     analysis = json.loads(
         (artifact_root / "assemblies" / assembly / "analysis.json").read_text(
             encoding="utf-8"
@@ -101,7 +103,7 @@ for assembly in ("root", "assembly-2"):
             encoding="utf-8"
         )
     )
-    assert bounding_box["output_unit"] == "mm"
+    assert bounding_box["output_unit"] == bounding_box_unit
     assert sorted(bounding_box) == ["center", "dimensions", "output_unit"]
     assert sorted(bounding_box["center"]) == ["x", "y", "z"]
     assert sorted(bounding_box["dimensions"]) == ["x", "y", "z"]

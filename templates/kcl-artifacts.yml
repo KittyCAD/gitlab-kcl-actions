@@ -235,6 +235,7 @@ spec:
           id: str
           main_kcl: str
           parameters_kcl: str
+          metadata_json: str
 
 
       def fail(message: str) -> None:
@@ -475,7 +476,7 @@ spec:
           else:
               main_files = all_main_files
 
-          assemblies: list[tuple[str, Path, Path]] = []
+          assemblies: list[Assembly] = []
           assembly_ids: set[str] = set()
           for main_kcl in main_files:
               parameters_kcl = main_kcl.parent / "parameters.kcl"
@@ -485,11 +486,26 @@ spec:
                       f"{relative_posix(main_kcl, repo_root)}"
                   )
 
+              metadata_json = main_kcl.parent / "metadata.json"
+              if not metadata_json.is_file():
+                  fail(
+                      "required metadata.json file was not found next to "
+                      f"{relative_posix(main_kcl, repo_root)}"
+                  )
+              validate_metadata(metadata_json)
+
               assembly_id = assembly_id_for_main(main_kcl, repo_root)
               if assembly_id in assembly_ids:
                   fail(f"assembly id {assembly_id!r} is not unique")
               assembly_ids.add(assembly_id)
-              assemblies.append((assembly_id, main_kcl, parameters_kcl))
+              assemblies.append(
+                  Assembly(
+                      assembly_id,
+                      relative_posix(main_kcl, repo_root),
+                      relative_posix(parameters_kcl, repo_root),
+                      relative_posix(metadata_json, repo_root),
+                  )
+              )
 
           snapshot_files = snapshot_files_for_assemblies(
               repo_root,
@@ -502,13 +518,14 @@ spec:
               "".join(
                   "\t".join(
                       [
-                          assembly_id,
-                          relative_posix(main_kcl, repo_root),
-                          relative_posix(parameters_kcl, repo_root),
+                          assembly.id,
+                          assembly.main_kcl,
+                          assembly.parameters_kcl,
+                          assembly.metadata_json,
                       ]
                   )
                   + "\n"
-                  for assembly_id, main_kcl, parameters_kcl in assemblies
+                  for assembly in assemblies
               ),
               encoding="utf-8",
           )
@@ -523,8 +540,8 @@ spec:
           for line in assemblies_file.read_text(encoding="utf-8").splitlines():
               if not line:
                   continue
-              fields = line.split("\t", 2)
-              if len(fields) != 3:
+              fields = line.split("\t")
+              if len(fields) != 4:
                   fail(f"invalid assemblies file row: {line!r}")
               assemblies.append(Assembly(*fields))
           if not assemblies:
@@ -566,7 +583,7 @@ spec:
 
       def validate_metadata(metadata_file: Path) -> dict[str, Any]:
           if not metadata_file.is_file():
-              fail("required metadata.json file was not found at the repo root")
+              fail(f"required metadata.json file was not found: {metadata_file}")
           try:
               metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
           except json.JSONDecodeError as err:
@@ -651,6 +668,7 @@ spec:
                   "id": assembly.id,
                   "main_kcl": assembly.main_kcl,
                   "parameters_kcl": assembly.parameters_kcl,
+                  "metadata_json": assembly.metadata_json,
               }
               for assembly in load_assemblies(assemblies_file)
           ]
@@ -813,13 +831,6 @@ spec:
         --assemblies-file "$state_dir/assemblies.tsv" \
         --overrides-json "$parameters_json"
 
-      python3 "$python_helper" metadata-env \
-        --metadata-file "$workspace/metadata.json" \
-        --env-out "$state_dir/metadata.env"
-
-      # shellcheck disable=SC1091
-      source "$state_dir/metadata.env"
-
       zoo_cmd=(zoo)
       if [[ -n "$host" ]]; then
         zoo_cmd+=(--host "$host")
@@ -916,11 +927,19 @@ spec:
       }
 
       assembly_index=0
-      while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl; do
+      while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
         [ -n "$assembly_id" ] || continue
         assembly_index=$((assembly_index + 1))
         assembly_dir="$artifact_dir/assemblies/$assembly_id"
         mkdir -p "$assembly_dir"
+
+        metadata_env="${state_dir}/metadata-${assembly_index}.env"
+        python3 "$python_helper" metadata-env \
+          --metadata-file "$metadata_json" \
+          --env-out "$metadata_env"
+
+        # shellcheck disable=SC1090
+        source "$metadata_env"
 
         run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl"
 

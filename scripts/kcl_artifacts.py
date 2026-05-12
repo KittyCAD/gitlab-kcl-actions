@@ -60,6 +60,7 @@ class Assembly:
     id: str
     main_kcl: str
     parameters_kcl: str
+    metadata_json: str
 
 
 def fail(message: str) -> None:
@@ -300,7 +301,7 @@ def write_project_info(
     else:
         main_files = all_main_files
 
-    assemblies: list[tuple[str, Path, Path]] = []
+    assemblies: list[Assembly] = []
     assembly_ids: set[str] = set()
     for main_kcl in main_files:
         parameters_kcl = main_kcl.parent / "parameters.kcl"
@@ -310,11 +311,26 @@ def write_project_info(
                 f"{relative_posix(main_kcl, repo_root)}"
             )
 
+        metadata_json = main_kcl.parent / "metadata.json"
+        if not metadata_json.is_file():
+            fail(
+                "required metadata.json file was not found next to "
+                f"{relative_posix(main_kcl, repo_root)}"
+            )
+        validate_metadata(metadata_json)
+
         assembly_id = assembly_id_for_main(main_kcl, repo_root)
         if assembly_id in assembly_ids:
             fail(f"assembly id {assembly_id!r} is not unique")
         assembly_ids.add(assembly_id)
-        assemblies.append((assembly_id, main_kcl, parameters_kcl))
+        assemblies.append(
+            Assembly(
+                assembly_id,
+                relative_posix(main_kcl, repo_root),
+                relative_posix(parameters_kcl, repo_root),
+                relative_posix(metadata_json, repo_root),
+            )
+        )
 
     snapshot_files = snapshot_files_for_assemblies(
         repo_root,
@@ -327,13 +343,14 @@ def write_project_info(
         "".join(
             "\t".join(
                 [
-                    assembly_id,
-                    relative_posix(main_kcl, repo_root),
-                    relative_posix(parameters_kcl, repo_root),
+                    assembly.id,
+                    assembly.main_kcl,
+                    assembly.parameters_kcl,
+                    assembly.metadata_json,
                 ]
             )
             + "\n"
-            for assembly_id, main_kcl, parameters_kcl in assemblies
+            for assembly in assemblies
         ),
         encoding="utf-8",
     )
@@ -348,8 +365,8 @@ def load_assemblies(assemblies_file: Path) -> list[Assembly]:
     for line in assemblies_file.read_text(encoding="utf-8").splitlines():
         if not line:
             continue
-        fields = line.split("\t", 2)
-        if len(fields) != 3:
+        fields = line.split("\t")
+        if len(fields) != 4:
             fail(f"invalid assemblies file row: {line!r}")
         assemblies.append(Assembly(*fields))
     if not assemblies:
@@ -391,7 +408,7 @@ def apply_project_parameters(
 
 def validate_metadata(metadata_file: Path) -> dict[str, Any]:
     if not metadata_file.is_file():
-        fail("required metadata.json file was not found at the repo root")
+        fail(f"required metadata.json file was not found: {metadata_file}")
     try:
         metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError as err:
@@ -476,6 +493,7 @@ def write_manifest(
             "id": assembly.id,
             "main_kcl": assembly.main_kcl,
             "parameters_kcl": assembly.parameters_kcl,
+            "metadata_json": assembly.metadata_json,
         }
         for assembly in load_assemblies(assemblies_file)
     ]

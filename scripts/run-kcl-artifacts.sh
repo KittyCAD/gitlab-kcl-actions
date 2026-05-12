@@ -50,13 +50,6 @@ python3 "$python_helper" apply-project-parameters \
   --assemblies-file "$state_dir/assemblies.tsv" \
   --overrides-json "$parameters_json"
 
-python3 "$python_helper" metadata-env \
-  --metadata-file "$workspace/metadata.json" \
-  --env-out "$state_dir/metadata.env"
-
-# shellcheck disable=SC1091
-source "$state_dir/metadata.env"
-
 zoo_cmd=(zoo)
 if [[ -n "$host" ]]; then
   zoo_cmd+=(--host "$host")
@@ -153,11 +146,19 @@ write_analysis() {
 }
 
 assembly_index=0
-while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl; do
+while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
   [ -n "$assembly_id" ] || continue
   assembly_index=$((assembly_index + 1))
   assembly_dir="$artifact_dir/assemblies/$assembly_id"
   mkdir -p "$assembly_dir"
+
+  metadata_env="${state_dir}/metadata-${assembly_index}.env"
+  python3 "$python_helper" metadata-env \
+    --metadata-file "$metadata_json" \
+    --env-out "$metadata_env"
+
+  # shellcheck disable=SC1090
+  source "$metadata_env"
 
   run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl"
 

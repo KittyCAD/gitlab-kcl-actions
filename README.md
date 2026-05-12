@@ -177,10 +177,10 @@ Consuming repositories must contain:
 - one or more `main.kcl` files. A root `main.kcl` works, and nested assembly
   entrypoints like `assembly-1/main.kcl` and `assembly-2/main.kcl` work too.
 - a sibling `parameters.kcl` next to every `main.kcl`.
-- one root `metadata.json`.
+- a sibling `metadata.json` next to every `main.kcl`.
 
 Missing `main.kcl`, missing sibling `parameters.kcl`, duplicate assembly IDs,
-and missing or invalid `metadata.json` are hard failures.
+and missing or invalid sibling `metadata.json` files are hard failures.
 
 ## `parameters.kcl`
 
@@ -237,8 +237,11 @@ top-level parameters and model files use `import * from "parameters.kcl"`.
 
 ## `metadata.json`
 
-`metadata.json` lives at the repository root and provides the physics arguments
-for `zoo kcl analyze` and the derived bounding-box artifact.
+`metadata.json` lives next to each `main.kcl` and provides the physics arguments
+for that entrypoint's `zoo kcl analyze` and derived bounding-box artifact. A
+root `main.kcl` uses the root `metadata.json`; `assembly-2/main.kcl` uses
+`assembly-2/metadata.json`. The workflow does not fall back from a nested
+assembly to the root metadata file.
 
 ```json
 {
@@ -260,8 +263,8 @@ or material data.
 ## Physics JSON
 
 Each assembly gets `analysis.json` from `zoo kcl analyze --format json`. The
-numeric values depend on the model and the units in `metadata.json`; the shape
-looks like:
+numeric values depend on the model and the units in that assembly's sibling
+`metadata.json`; the shape looks like:
 
 ```json
 {
