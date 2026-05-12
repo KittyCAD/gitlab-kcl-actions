@@ -33,7 +33,7 @@ test -s "$project/kcl-artifacts/snapshots/main.png"
 test -s "$project/kcl-artifacts/snapshots/part.png"
 test -s "$project/kcl-artifacts/manifest.json"
 
-grep -q 'width = 20' "$project/parameters.kcl"
+grep -q 'export width = 20' "$project/parameters.kcl"
 
 python3 - "$project/kcl-artifacts/manifest.json" <<'PY'
 import json

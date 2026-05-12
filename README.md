@@ -69,6 +69,10 @@ include:
       parameters_json: '{"width": 24, "depth": 6}'
 ```
 
+GitLab evaluates `spec:inputs` when the pipeline is created. Per GitLab's
+input limits, the string inside an interpolation block must stay under 1 KB, so
+keep `parameters_json` to small sweep-style overrides.
+
 Use a non-default Zoo API host:
 
 ```yaml
@@ -105,25 +109,19 @@ Example `parameters.kcl`:
 ```kcl
 @settings(defaultLengthUnit = mm)
 
-width = 20
-height = 12
-depth = 8
-
-{
-  width = width,
-  height = height,
-  depth = depth,
-}
+export width = 20
+export height = 12
+export depth = 8
 ```
 
 Example consuming KCL:
 
 ```kcl
-import "parameters.kcl" as parameters
+import * from "parameters.kcl"
 
 assembly = startSketchOn(XY)
-  |> rectangle(width = parameters.width, height = parameters.height, center = [0, 0])
-  |> extrude(length = parameters.depth)
+  |> rectangle(width = width, height = height, center = [0, 0])
+  |> extrude(length = depth)
 ```
 
 With:
@@ -135,25 +133,17 @@ With:
 the temporary workspace gets:
 
 ```kcl
-width = 24
-height = 12
-depth = 6
-
-{
-  width = width,
-  height = height,
-  depth = depth,
-}
+export width = 24
+export height = 12
+export depth = 6
 ```
 
 The repository checkout is not edited. Replacement values are JSON literals
 rendered as KCL literals: numbers, strings, booleans, null as `none`, arrays,
 and objects with identifier-shaped keys.
 
-The final object matters. Per the KCL module docs, importing a whole module
-uses the module's final expression as its value. If `parameters.kcl` only has
-bare assignments, the module returns the last assigned value, not a parameter
-object.
+This matches the multi-file KCL sample style, where `parameters.kcl` exports
+top-level parameters and model files use `import * from "parameters.kcl"`.
 
 ## `metadata.json`
 

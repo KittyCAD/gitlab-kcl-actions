@@ -1,5 +1,5 @@
-import "parameters.kcl" as parameters
+import * from "parameters.kcl"
 
 assembly = startSketchOn(XY)
-  |> rectangle(width = parameters.width, height = parameters.height, center = [0, 0])
-  |> extrude(length = parameters.depth)
+  |> rectangle(width = width, height = height, center = [0, 0])
+  |> extrude(length = depth)

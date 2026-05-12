@@ -1,5 +1,4 @@
 spec:
-  component: [name, version, reference]
   inputs:
     stage:
       default: test

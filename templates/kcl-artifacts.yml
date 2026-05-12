@@ -1,5 +1,4 @@
 spec:
-  component: [name, version, reference]
   inputs:
     stage:
       default: test
@@ -39,7 +38,8 @@ spec:
   stage: $[[ inputs.stage ]]
   image: python:3.12-slim
   variables:
-    KCL_PARAMETERS_JSON: '$[[ inputs.parameters_json ]]'
+    KCL_PARAMETERS_JSON: |-
+      $[[ inputs.parameters_json ]]
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
@@ -448,7 +448,12 @@ spec:
       state_dir="${tmp_parent}/state"
       mkdir -p "$workspace" "$state_dir"
 
-      tar --exclude='./.git' --exclude='./kcl-artifacts' -cf - . | tar -C "$workspace" -xf -
+      tar \
+        --exclude='./.git' \
+        --exclude='./.gitlab-kcl-actions' \
+        --exclude='./.kcl-tools' \
+        --exclude='./kcl-artifacts' \
+        -cf - . | tar -C "$workspace" -xf -
       rm -rf "$artifact_dir"
       mkdir -p "$artifact_dir/assembly" "$artifact_dir/snapshots"
 

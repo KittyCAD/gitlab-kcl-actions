@@ -16,7 +16,7 @@ class KclArtifactsTests(unittest.TestCase):
                 "\n".join(
                     [
                         "@settings(defaultLengthUnit = mm)",
-                        "width = 20 // keep this",
+                        "export width = 20 // keep this",
                         "label = \"old\"",
                         "enabled = false",
                     ]
@@ -35,7 +35,7 @@ class KclArtifactsTests(unittest.TestCase):
                 "\n".join(
                     [
                         "@settings(defaultLengthUnit = mm)",
-                        "width = 42 // keep this",
+                        "export width = 42 // keep this",
                         "label = \"new\"",
                         "enabled = true",
                     ]
@@ -46,7 +46,7 @@ class KclArtifactsTests(unittest.TestCase):
     def test_apply_parameters_fails_for_unknown_parameter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             params = Path(tmp) / "parameters.kcl"
-            params.write_text("width = 20\n", encoding="utf-8")
+            params.write_text("export width = 20\n", encoding="utf-8")
 
             with self.assertRaises(kcl_artifacts.WorkflowError):
                 kcl_artifacts.apply_parameters(params, '{"depth": 10}')
@@ -54,7 +54,7 @@ class KclArtifactsTests(unittest.TestCase):
     def test_apply_parameters_requires_json_object(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             params = Path(tmp) / "parameters.kcl"
-            params.write_text("width = 20\n", encoding="utf-8")
+            params.write_text("export width = 20\n", encoding="utf-8")
 
             with self.assertRaises(kcl_artifacts.WorkflowError):
                 kcl_artifacts.apply_parameters(params, '["nope"]')

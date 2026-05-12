@@ -1,11 +1,5 @@
 @settings(defaultLengthUnit = mm)
 
-width = 20
-height = 12
-depth = 8
-
-{
-  width = width,
-  height = height,
-  depth = depth,
-}
+export width = 20
+export height = 12
+export depth = 8

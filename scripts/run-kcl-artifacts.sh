@@ -20,7 +20,12 @@ workspace="${tmp_parent}/repo"
 state_dir="${tmp_parent}/state"
 mkdir -p "$workspace" "$state_dir"
 
-tar --exclude='./.git' --exclude='./kcl-artifacts' -cf - . | tar -C "$workspace" -xf -
+tar \
+  --exclude='./.git' \
+  --exclude='./.gitlab-kcl-actions' \
+  --exclude='./.kcl-tools' \
+  --exclude='./kcl-artifacts' \
+  -cf - . | tar -C "$workspace" -xf -
 rm -rf "$artifact_dir"
 mkdir -p "$artifact_dir/assembly" "$artifact_dir/snapshots"
 

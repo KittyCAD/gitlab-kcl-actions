@@ -36,7 +36,6 @@ def heredoc_step(filename: str, content: str) -> str:
 def render_install() -> str:
     installer = (ROOT / "scripts" / "install-zoo-cli.sh").read_text(encoding="utf-8")
     body = """spec:
-  component: [name, version, reference]
   inputs:
     stage:
       default: test
@@ -71,7 +70,6 @@ def render_install() -> str:
 def render_kcl_artifacts() -> str:
     scripts = {name: path.read_text(encoding="utf-8") for name, path in SCRIPT_FILES.items()}
     body = """spec:
-  component: [name, version, reference]
   inputs:
     stage:
       default: test
@@ -111,7 +109,8 @@ def render_kcl_artifacts() -> str:
   stage: $[[ inputs.stage ]]
   image: python:3.12-slim
   variables:
-    KCL_PARAMETERS_JSON: '$[[ inputs.parameters_json ]]'
+    KCL_PARAMETERS_JSON: |-
+      $[[ inputs.parameters_json ]]
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
