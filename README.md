@@ -35,7 +35,23 @@ include:
       zoo_version: "v0.2.165"
 ```
 
+Use the installed binary in a later job:
+
+```yaml
+use-zoo:
+  stage: test
+  needs:
+    - job: install-zoo-cli
+      artifacts: true
+  script:
+    - export PATH="$CI_PROJECT_DIR/.kcl-tools/bin:$PATH"
+    - zoo version
+```
+
 ### `kcl-artifacts`
+
+This component installs Zoo itself. You do not need to include
+`install-zoo-cli` separately for the artifact workflow.
 
 Include the component from GitLab:
 
@@ -89,19 +105,25 @@ Example `parameters.kcl`:
 ```kcl
 @settings(defaultLengthUnit = mm)
 
-export width = 20
-export height = 12
-export depth = 8
+width = 20
+height = 12
+depth = 8
+
+{
+  width = width,
+  height = height,
+  depth = depth,
+}
 ```
 
 Example consuming KCL:
 
 ```kcl
-import width, height, depth from "parameters.kcl"
+import "parameters.kcl" as parameters
 
 assembly = startSketchOn(XY)
-  |> rectangle(width = width, height = height, center = [0, 0])
-  |> extrude(length = depth)
+  |> rectangle(width = parameters.width, height = parameters.height, center = [0, 0])
+  |> extrude(length = parameters.depth)
 ```
 
 With:
@@ -113,14 +135,25 @@ With:
 the temporary workspace gets:
 
 ```kcl
-export width = 24
-export height = 12
-export depth = 6
+width = 24
+height = 12
+depth = 6
+
+{
+  width = width,
+  height = height,
+  depth = depth,
+}
 ```
 
 The repository checkout is not edited. Replacement values are JSON literals
 rendered as KCL literals: numbers, strings, booleans, null as `none`, arrays,
 and objects with identifier-shaped keys.
+
+The final object matters. Per the KCL module docs, importing a whole module
+uses the module's final expression as its value. If `parameters.kcl` only has
+bare assignments, the module returns the last assigned value, not a parameter
+object.
 
 ## `metadata.json`
 
