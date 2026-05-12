@@ -96,6 +96,34 @@ def kcl_literal(value: Any) -> str:
     fail(f"unsupported JSON value type: {type(value).__name__}")
 
 
+def brace_delta(line: str) -> int:
+    """Count braces outside strings and line comments for shallow KCL blocks."""
+    delta = 0
+    in_string = False
+    escaped = False
+    index = 0
+    while index < len(line):
+        char = line[index]
+        next_char = line[index + 1] if index + 1 < len(line) else ""
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == "/" and next_char == "/":
+            break
+        elif char == '"':
+            in_string = True
+        elif char == "{":
+            delta += 1
+        elif char == "}":
+            delta -= 1
+        index += 1
+    return delta
+
+
 def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
     if not parameters_file.is_file():
         fail(f"required parameters.kcl file does not exist: {parameters_file}")
@@ -108,6 +136,7 @@ def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
     replacement_names = set(overrides)
     seen: set[str] = set()
     output: list[str] = []
+    brace_depth = 0
 
     for line in lines:
         newline = ""
@@ -116,14 +145,20 @@ def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
             newline = "\n"
             body = body[:-1]
 
-        match = ASSIGNMENT_RE.match(body)
+        match = ASSIGNMENT_RE.match(body) if brace_depth == 0 else None
         if not match:
             output.append(line)
+            brace_depth += brace_delta(body)
+            if brace_depth < 0:
+                brace_depth = 0
             continue
 
         name = match.group("name")
         if name not in overrides:
             output.append(line)
+            brace_depth += brace_delta(body)
+            if brace_depth < 0:
+                brace_depth = 0
             continue
         if name in seen:
             fail(f"parameters.kcl defines {name!r} more than once")
@@ -133,6 +168,9 @@ def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
             f"{match.group('prefix')}{name}{match.group('equals')}"
             f"{kcl_literal(overrides[name])}{match.group('comment')}{newline}"
         )
+        brace_depth += brace_delta(body)
+        if brace_depth < 0:
+            brace_depth = 0
 
     missing = sorted(replacement_names - seen)
     if missing:
