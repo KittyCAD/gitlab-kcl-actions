@@ -17,8 +17,8 @@ class KclArtifactsTests(unittest.TestCase):
                     [
                         "@settings(defaultLengthUnit = mm)",
                         "export width = 20 // keep this",
-                        "label = \"old\"",
-                        "enabled = false",
+                        "export label = \"old\"",
+                        "export enabled = false",
                     ]
                 )
                 + "\n",
@@ -36,8 +36,8 @@ class KclArtifactsTests(unittest.TestCase):
                     [
                         "@settings(defaultLengthUnit = mm)",
                         "export width = 42 // keep this",
-                        "label = \"new\"",
-                        "enabled = true",
+                        "export label = \"new\"",
+                        "export enabled = true",
                     ]
                 )
                 + "\n",
@@ -79,6 +79,14 @@ class KclArtifactsTests(unittest.TestCase):
                 )
                 + "\n",
             )
+
+    def test_apply_parameters_requires_exported_parameters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            params = Path(tmp) / "parameters.kcl"
+            params.write_text("width = 20\n", encoding="utf-8")
+
+            with self.assertRaises(kcl_artifacts.WorkflowError):
+                kcl_artifacts.apply_parameters(params, json.dumps({"width": 42}))
 
     def test_apply_parameters_fails_for_unknown_parameter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

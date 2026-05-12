@@ -101,8 +101,9 @@ Missing or invalid `metadata.json` is also a hard failure.
 
 ## `parameters.kcl`
 
-The `parameters_json` input replaces existing top-level assignments in
-`parameters.kcl`. It does not add new parameters.
+The `parameters_json` input replaces existing exported top-level assignments in
+`parameters.kcl`. It does not add new parameters and it does not replace
+non-exported local values.
 
 Example `parameters.kcl`:
 

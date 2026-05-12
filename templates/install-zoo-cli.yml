@@ -1,4 +1,5 @@
 spec:
+  description: "Install the Zoo CLI release binary for later GitLab CI jobs."
   inputs:
     stage:
       default: test
@@ -21,7 +22,22 @@ spec:
     - |
       cat > .gitlab-kcl-actions/install-zoo-cli.sh <<'KCL_ARTIFACTS_INSTALL_ZOO_CLI_SH'
       #!/usr/bin/env bash
-      set -euo pipefail
+      set -Eeuo pipefail
+
+      self="$(basename "$0")"
+      usage() {
+        cat <<-EOUSAGE
+      		usage: $self [zoo-version] [install-dir]
+
+      		Installs the Zoo CLI release binary for this Linux runner.
+      		If zoo-version is empty, installs the latest GitHub release.
+      	EOUSAGE
+      }
+
+      if [ "$#" -gt 2 ]; then
+        usage >&2
+        exit 1
+      fi
 
       requested_version="${1:-}"
       install_dir="${2:-/usr/local/bin}"
@@ -49,13 +65,17 @@ spec:
           ;;
       esac
 
-      if [[ -z "$requested_version" ]]; then
-        release="$(curl -fsSL "https://api.github.com/repos/KittyCAD/cli/releases" | jq -r '.[0].name')"
+      if [ -z "$requested_version" ]; then
+        release="$(curl -fsSL "https://api.github.com/repos/KittyCAD/cli/releases/latest" | jq -r '.tag_name')"
       else
         release="$requested_version"
         if [[ "$release" != v* ]]; then
           release="v$release"
         fi
+      fi
+      if [ -z "$release" ] || [ "$release" = 'null' ]; then
+        echo "error: failed to resolve Zoo CLI release" >&2
+        exit 1
       fi
 
       asset="zoo-${arch}-${os}"
@@ -64,9 +84,19 @@ spec:
 
       echo "Installing Zoo CLI ${release} (${asset})"
       expected_sha="$(curl -fsSL "${base_url}/${asset}.sha256" | cut -d ' ' -f 1)"
-      curl -fsSL "${base_url}/${asset}" -o "${install_dir}/zoo"
-      echo "${expected_sha}  ${install_dir}/zoo" | sha256sum -c -
-      chmod a+x "${install_dir}/zoo"
+      if [ -z "$expected_sha" ]; then
+        echo "error: failed to resolve SHA256 for ${asset} in ${release}" >&2
+        exit 1
+      fi
+
+      tmp="$(mktemp "${install_dir}/.zoo.XXXXXXXXXX")"
+      trap 'rm -f "$tmp"' EXIT
+
+      curl -fsSL "${base_url}/${asset}" -o "$tmp"
+      echo "${expected_sha}  ${tmp}" | sha256sum -c -
+      chmod a+x "$tmp"
+      mv -f "$tmp" "${install_dir}/zoo"
+      trap - EXIT
 
       "${install_dir}/zoo" version
       KCL_ARTIFACTS_INSTALL_ZOO_CLI_SH

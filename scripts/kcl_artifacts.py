@@ -37,7 +37,7 @@ ENV_NAMES = {
 }
 
 ASSIGNMENT_RE = re.compile(
-    r"^(?P<prefix>\s*(?:export\s+)?)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<equals>\s*=\s*)"
+    r"^(?P<prefix>export\s+)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<equals>\s*=\s*)"
     r"(?P<value>.*?)(?P<comment>\s*(?://.*)?)$"
 )
 SKIPPED_DIRS = {
@@ -137,7 +137,7 @@ def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
     missing = sorted(replacement_names - seen)
     if missing:
         fail(
-            "parameters_json referenced parameter(s) not defined in parameters.kcl: "
+            "parameters_json referenced parameter(s) not exported in parameters.kcl: "
             + ", ".join(missing)
         )
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+: "${ZOO_API_TOKEN:?ZOO_API_TOKEN is required for Zoo CLI artifact generation}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python_helper="${KCL_ARTIFACTS_PY:-${script_dir}/kcl_artifacts.py}"
@@ -13,6 +15,8 @@ host="${KCL_ZOO_HOST:-}"
 snapshot_angle="${KCL_SNAPSHOT_ANGLE:-iso}"
 camera_style="${KCL_CAMERA_STYLE:-ortho}"
 camera_padding="${KCL_CAMERA_PADDING:-0.1}"
+zoo_attempts="${KCL_ZOO_ATTEMPTS:-3}"
+zoo_retry_delay="${KCL_ZOO_RETRY_DELAY:-5}"
 
 tmp_parent="$(mktemp -d)"
 trap 'rm -rf "$tmp_parent"' EXIT
@@ -57,9 +61,49 @@ fi
 
 zoo_version="$(zoo version)"
 
-"${zoo_cmd[@]}" kcl lint "$MAIN_KCL"
+run_zoo() {
+  local attempt=1
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+    local status="$?"
+    if [ "$attempt" -ge "$zoo_attempts" ]; then
+      return "$status"
+    fi
+    echo >&2 "Zoo command failed with status ${status}; retrying (${attempt}/${zoo_attempts})..."
+    sleep "$zoo_retry_delay"
+    attempt=$((attempt + 1))
+  done
+}
 
-"${zoo_cmd[@]}" kcl analyze \
+write_zoo_output() {
+  local destination="$1"
+  shift
+  local tmp="${state_dir}/$(basename "$destination").tmp"
+  local attempt=1
+
+  while true; do
+    rm -f "$tmp"
+    if "$@" > "$tmp"; then
+      mv "$tmp" "$destination"
+      return 0
+    fi
+    local status="$?"
+    rm -f "$tmp"
+    if [ "$attempt" -ge "$zoo_attempts" ]; then
+      return "$status"
+    fi
+    echo >&2 "Zoo command failed with status ${status}; retrying (${attempt}/${zoo_attempts})..."
+    sleep "$zoo_retry_delay"
+    attempt=$((attempt + 1))
+  done
+}
+
+run_zoo "${zoo_cmd[@]}" kcl lint "$MAIN_KCL"
+
+write_zoo_output "$artifact_dir/assembly/analysis.json" \
+  "${zoo_cmd[@]}" kcl analyze \
   --format json \
   --material-density "$MATERIAL_DENSITY" \
   --material-density-unit "$MATERIAL_DENSITY_UNIT" \
@@ -68,7 +112,7 @@ zoo_version="$(zoo version)"
   --density-output-unit "$DENSITY_OUTPUT_UNIT" \
   --surface-area-output-unit "$SURFACE_AREA_OUTPUT_UNIT" \
   --center-of-mass-output-unit "$CENTER_OF_MASS_OUTPUT_UNIT" \
-  "$MAIN_KCL" > "$artifact_dir/assembly/analysis.json"
+  "$MAIN_KCL"
 
 export_one() {
   local format="$1"
@@ -77,7 +121,7 @@ export_one() {
   local export_dir="${state_dir}/export-${format}"
 
   mkdir -p "$export_dir"
-  "${zoo_cmd[@]}" kcl export \
+  run_zoo "${zoo_cmd[@]}" kcl export \
     --deterministic \
     --output-format "$format" \
     "$MAIN_KCL" \
@@ -99,12 +143,13 @@ export_one() {
 export_one step step "$artifact_dir/assembly/model.step"
 export_one gltf gltf "$artifact_dir/assembly/model.gltf"
 
-"${zoo_cmd[@]}" kcl bounding-box \
+write_zoo_output "$artifact_dir/assembly/bounding-box.json" \
+  "${zoo_cmd[@]}" kcl bounding-box \
   --format json \
   --output-unit "$BOUNDING_BOX_OUTPUT_UNIT" \
-  "$MAIN_KCL" > "$artifact_dir/assembly/bounding-box.json"
+  "$MAIN_KCL"
 
-"${zoo_cmd[@]}" kcl snapshot \
+run_zoo "${zoo_cmd[@]}" kcl snapshot \
   --output-format png \
   --angle "$snapshot_angle" \
   --camera-style "$camera_style" \
@@ -116,7 +161,7 @@ while IFS= read -r snapshot_input; do
   [[ -n "$snapshot_input" ]] || continue
   snapshot_output="$artifact_dir/snapshots/${snapshot_input%.kcl}.png"
   mkdir -p "$(dirname "$snapshot_output")"
-  "${zoo_cmd[@]}" kcl snapshot \
+  run_zoo "${zoo_cmd[@]}" kcl snapshot \
     --output-format png \
     --angle "$snapshot_angle" \
     --camera-style "$camera_style" \
