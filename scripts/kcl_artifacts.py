@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 from dataclasses import dataclass
 import json
 import math
@@ -531,6 +532,28 @@ def write_bounding_box_json(
     )
 
 
+def write_source_files(
+    repo_root: Path,
+    snapshots_file: Path,
+    output_dir: Path,
+) -> None:
+    repo_root = repo_root.resolve()
+    output_dir = output_dir.resolve()
+    for line in snapshots_file.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        relative_path = normalize_repo_path(line, "source file")
+        if not relative_path.endswith(".kcl"):
+            continue
+
+        source = repo_root / relative_path
+        if not source.is_file():
+            fail(f"source file does not exist: {relative_path}")
+        destination = output_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+
+
 def write_manifest(
     artifact_dir: Path,
     assemblies_file: Path,
@@ -596,6 +619,11 @@ def build_parser() -> argparse.ArgumentParser:
     bounding_box_parser.add_argument("--output-file", required=True, type=Path)
     bounding_box_parser.add_argument("--output-unit", required=True)
 
+    source_parser = subparsers.add_parser("write-source-files")
+    source_parser.add_argument("--repo-root", required=True, type=Path)
+    source_parser.add_argument("--snapshots-file", required=True, type=Path)
+    source_parser.add_argument("--output-dir", required=True, type=Path)
+
     manifest_parser = subparsers.add_parser("write-manifest")
     manifest_parser.add_argument("--artifact-dir", required=True, type=Path)
     manifest_parser.add_argument("--assemblies-file", required=True, type=Path)
@@ -634,6 +662,12 @@ def main(argv: list[str] | None = None) -> int:
                 args.analysis_file,
                 args.output_file,
                 args.output_unit,
+            )
+        elif args.command == "write-source-files":
+            write_source_files(
+                args.repo_root,
+                args.snapshots_file,
+                args.output_dir,
             )
         elif args.command == "write-manifest":
             write_manifest(

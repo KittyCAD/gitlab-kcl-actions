@@ -94,7 +94,7 @@ tar \
   --exclude='./kcl-artifacts' \
   -cf - . | tar -C "$workspace" -xf -
 rm -rf "$artifact_dir"
-mkdir -p "$artifact_dir/assemblies" "$artifact_dir/snapshots"
+mkdir -p "$artifact_dir/assemblies" "$artifact_dir/snapshots" "$artifact_dir/source"
 
 cd "$workspace"
 
@@ -276,6 +276,11 @@ while IFS= read -r snapshot_input; do
     "$snapshot_input" \
     "$snapshot_output"
 done < "$state_dir/snapshots.list"
+
+python3 "$python_helper" write-source-files \
+  --repo-root "$workspace" \
+  --snapshots-file "$state_dir/snapshots.list" \
+  --output-dir "$artifact_dir/source"
 
 python3 "$python_helper" write-manifest \
   --artifact-dir "$artifact_dir" \
