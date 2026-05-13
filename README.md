@@ -11,9 +11,9 @@ KittyCAD Python SDK.
 
 ## Components
 
-All components accept `stage` and `job-name`. Install-only jobs use `image` for
-their container. Jobs that produce output artifacts use `artifacts_image`; if a
-component also has a separate installer job, that installer uses `install_image`.
+All components accept `stage` and `job-name`. Single-job components use `image`
+for their container. Components with separate installer and artifact jobs use
+`install_image` and `artifacts_image`.
 
 ### `install-zoo-cli`
 
@@ -442,10 +442,10 @@ Use a mirrored image when your runners cannot pull Docker Hub directly:
 include:
   - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
     inputs:
-      artifacts_image: registry.example.com/mirrors/python:3.12-slim
+      image: registry.example.com/mirrors/python:3.12-slim
 ```
 
-`artifacts_image` must provide Python 3.12.
+`image` must provide Python 3.12.
 
 Run it from a GitLab pipeline schedule by making a schedule-only pipeline config:
 
