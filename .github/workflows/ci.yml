@@ -9,12 +9,17 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    env:
+      ZOO_API_TOKEN: ${{ secrets.ZOO_API_TOKEN }}
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install .
 
       - name: Python unit tests
         run: python -m unittest discover -s tests -v

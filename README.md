@@ -175,6 +175,75 @@ assemblies are selected and artifacts need to be generated. If the default
 changed-file detection finds no matching assembly, the job exits before using
 the token.
 
+### `dataset-conversions`
+
+Use this to download successful converted KCL outputs and salon snapshot PNGs
+from every org dataset using the KittyCAD Python SDK:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+```
+
+By default, the job lists every dataset in the authenticated org and downloads
+successful completed conversions into:
+
+```text
+dataset-conversions/
+  Dataset Name/
+    output/
+      path/from/dataset.step/
+        main.kcl
+        0.png
+        1.png
+  dataset-conversions-report.json
+```
+
+Narrow to one dataset if needed:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+    inputs:
+      dataset_id: "00000000-0000-0000-0000-000000000000"
+```
+
+Override the API host the same way as the other components:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+    inputs:
+      host: "https://api.example.com"
+```
+
+The component sets `ZOO_HOST` from that input. If `host` is empty, the SDK uses
+its default host or an existing `ZOO_HOST` from the job environment.
+
+Run it from a GitLab pipeline schedule by making a schedule-only pipeline config:
+
+```yaml
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - when: never
+
+stages:
+  - scrape
+
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+    inputs:
+      stage: scrape
+      job-name: scrape-dataset-conversions
+      output_dir: dataset-conversions
+      host: "https://api.zoo.dev"
+```
+
+Create the schedule in GitLab's pipeline schedules UI with whatever cron cadence
+you want, and set `ZOO_API_TOKEN` as a protected/masked CI/CD variable. The job
+fails if the token is not present.
+
 ## Repository Contract
 
 Consuming repositories must contain:
@@ -363,6 +432,7 @@ of scope and should happen in a later GitLab job.
 Run the unit tests and real Zoo flow test:
 
 ```sh
+python -m pip install .
 python -m unittest discover -s tests -v
 tests/test_kcl_artifact_workflow.sh
 python scripts/render_component.py --check
@@ -374,6 +444,7 @@ Render the self-contained GitLab component after editing scripts:
 python scripts/render_component.py
 ```
 
-The real flow test requires `ZOO_API_TOKEN` and a `zoo` binary on `PATH`.
-GitHub CI installs the latest Zoo CLI and runs that test on every push and pull
-request. If the secret is missing, CI fails.
+The real flow tests require `ZOO_API_TOKEN`. The KCL artifact workflow test also
+requires a `zoo` binary on `PATH`. GitHub CI installs the latest Zoo CLI and
+runs the real tests on every push and pull request. If the secret is missing,
+CI fails.

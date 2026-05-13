@@ -11,6 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 KCL_TARGET = ROOT / "templates" / "kcl-artifacts.yml"
 INSTALL_TARGET = ROOT / "templates" / "install-zoo-cli.yml"
+DATASET_CONVERSIONS_TARGET = ROOT / "templates" / "dataset-conversions.yml"
 SCRIPT_FILES = {
     "install-zoo-cli.sh": ROOT / "scripts" / "install-zoo-cli.sh",
     "kcl_artifacts.py": ROOT / "scripts" / "kcl_artifacts.py",
@@ -19,6 +20,9 @@ SCRIPT_FILES = {
 KCL_ARTIFACT_SCRIPT_FILES = {
     "kcl_artifacts.py": ROOT / "scripts" / "kcl_artifacts.py",
     "run-kcl-artifacts.sh": ROOT / "scripts" / "run-kcl-artifacts.sh",
+}
+DATASET_CONVERSIONS_SCRIPT_FILES = {
+    "dataset_conversions.py": ROOT / "scripts" / "dataset_conversions.py",
 }
 
 
@@ -178,6 +182,95 @@ def render_kcl_artifacts() -> str:
     return body
 
 
+def render_dataset_conversions() -> str:
+    scripts = {
+        name: path.read_text(encoding="utf-8")
+        for name, path in DATASET_CONVERSIONS_SCRIPT_FILES.items()
+    }
+    body = """spec:
+  inputs:
+    stage:
+      default: test
+      description: "Pipeline stage for the dataset conversion scrape job."
+    job-name:
+      default: dataset-conversions
+      description: "Job name to use after the component merges into the consuming pipeline."
+    dataset_id:
+      default: ""
+      description: "Optional org dataset UUID to scrape. Empty scrapes every org dataset."
+    output_dir:
+      default: dataset-conversions
+      description: "Artifact directory where conversion outputs and the report are written."
+    host:
+      default: ""
+      description: "Optional Zoo API host. Empty means use the SDK default or existing ZOO_HOST."
+    filter:
+      default: "status=success"
+      description: "Dataset conversion filter passed to the KittyCAD Python SDK."
+    limit:
+      default: ""
+      description: "Optional per-page limit passed to the SDK iterator. Empty leaves it unset."
+    sort_by:
+      default: ""
+      options:
+        - ""
+        - created_at_ascending
+        - created_at_descending
+        - status_ascending
+        - status_descending
+        - updated_at_ascending
+        - updated_at_descending
+      description: "Optional conversion sort mode passed to the SDK iterator."
+    image:
+      default: python:3.12-slim
+      description: "Container image for the scrape job."
+    kittycad_package:
+      default: kittycad
+      description: "Python package requirement to install for the KittyCAD SDK, for example kittycad==1.3.8."
+---
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  image: $[[ inputs.image ]]
+  variables:
+    DATASET_ID: '$[[ inputs.dataset_id ]]'
+    DATASET_CONVERSIONS_OUTPUT_DIR: '$[[ inputs.output_dir ]]'
+    DATASET_CONVERSIONS_FILTER: '$[[ inputs.filter ]]'
+    DATASET_CONVERSIONS_LIMIT: '$[[ inputs.limit ]]'
+    DATASET_CONVERSIONS_SORT_BY: '$[[ inputs.sort_by ]]'
+    DATASET_CONVERSIONS_HOST: '$[[ inputs.host ]]'
+    DATASET_CONVERSIONS_KITTYCAD_PACKAGE: '$[[ inputs.kittycad_package ]]'
+  before_script:
+    - mkdir -p .gitlab-kcl-actions
+"""
+    for filename, content in scripts.items():
+        body += heredoc_step(filename, content)
+    body += """  script:
+    - python -m pip install --no-cache-dir "$DATASET_CONVERSIONS_KITTYCAD_PACKAGE"
+    - |
+      if [ -n "$DATASET_CONVERSIONS_HOST" ]; then
+        export ZOO_HOST="$DATASET_CONVERSIONS_HOST"
+      fi
+      set -- \
+        --output-dir "$DATASET_CONVERSIONS_OUTPUT_DIR" \
+        --filter "$DATASET_CONVERSIONS_FILTER"
+      if [ -n "$DATASET_ID" ]; then
+        set -- "$@" --dataset-id "$DATASET_ID"
+      fi
+      if [ -n "$DATASET_CONVERSIONS_LIMIT" ]; then
+        set -- "$@" --limit "$DATASET_CONVERSIONS_LIMIT"
+      fi
+      if [ -n "$DATASET_CONVERSIONS_SORT_BY" ]; then
+        set -- "$@" --sort-by "$DATASET_CONVERSIONS_SORT_BY"
+      fi
+      python .gitlab-kcl-actions/dataset_conversions.py "$@"
+  artifacts:
+    when: always
+    paths:
+      - $[[ inputs.output_dir ]]/
+"""
+    return body
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="fail if the template is stale")
@@ -186,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     rendered = {
         INSTALL_TARGET: render_install(),
         KCL_TARGET: render_kcl_artifacts(),
+        DATASET_CONVERSIONS_TARGET: render_dataset_conversions(),
     }
     if args.check:
         for target, content in rendered.items():
