@@ -186,17 +186,24 @@ include:
 ```
 
 By default, the job lists every dataset in the authenticated org and downloads
-successful completed conversions into:
+successful completed conversions into the current directory:
 
 ```text
-dataset-conversions/
-  Dataset Name/
-    output/
-      path/from/dataset.step/
-        main.kcl
-        0.png
-        1.png
-  dataset-conversions-report.json
+Dataset Name/
+  output/
+    path/from/dataset.step/
+      main.kcl
+      0.png
+      1.png
+```
+
+Set `output_dir` if you want those files under a specific artifact directory:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+    inputs:
+      output_dir: dataset-conversions
 ```
 
 Narrow to one dataset if needed:
@@ -236,7 +243,6 @@ include:
     inputs:
       stage: scrape
       job-name: scrape-dataset-conversions
-      output_dir: dataset-conversions
       host: "https://api.zoo.dev"
 ```
 

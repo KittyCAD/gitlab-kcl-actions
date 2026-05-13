@@ -92,9 +92,6 @@ class DatasetConversionsTests(unittest.TestCase):
                 client,
                 dataset_id="dataset-1",
                 output_dir=output_dir,
-                filter_text="status=success",
-                limit=25,
-                sort_by="status_descending",
             )
 
             self.assertEqual(client.orgs.dataset_id, "dataset-1")
@@ -103,8 +100,6 @@ class DatasetConversionsTests(unittest.TestCase):
                 client.orgs.list_kwargs,
                 {
                     "filter": "status=success",
-                    "limit": 25,
-                    "sort_by": "status_descending",
                 },
             )
             self.assertEqual(client.orgs.detail_calls, [("dataset-1", "conversion-1")])
@@ -129,19 +124,11 @@ class DatasetConversionsTests(unittest.TestCase):
                 client,
                 dataset_id=None,
                 output_dir=output_dir,
-                filter_text="status=success",
-                limit=25,
-                sort_by=None,
             )
 
             self.assertEqual([item.dataset_id for item in stats], ["dataset-1", "dataset-2"])
             self.assertEqual(dataset_conversions.total_count(stats, "fetched"), 2)
-            report = dataset_conversions.report_for_stats(
-                stats,
-                filter_text="status=success",
-            )
-            self.assertEqual(report["counts"]["datasets"], 2)
-            self.assertEqual(report["counts"]["outputs_written"], 2)
+            self.assertEqual(dataset_conversions.total_count(stats, "outputs_written"), 2)
 
     def test_non_png_snapshot_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

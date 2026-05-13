@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -17,14 +16,6 @@ LOG_PREFIX = "[dataset-conversions]"
 SAFE_PATH_PART_RE = re.compile(r"[^A-Za-z0-9._ -]+")
 SAFE_PATH_SEPARATORS_RE = re.compile(r"_+")
 DEFAULT_FILTER = "status=success"
-SORT_MODES = {
-    "created_at_ascending",
-    "created_at_descending",
-    "status_ascending",
-    "status_descending",
-    "updated_at_ascending",
-    "updated_at_descending",
-}
 
 
 @dataclass
@@ -166,9 +157,6 @@ def scrape_dataset_conversions(
     *,
     dataset_id: str,
     output_dir: Path,
-    filter_text: str | None,
-    limit: int | None,
-    sort_by: Any,
     dataset: Any | None = None,
 ) -> ScrapeStats:
     if dataset is None:
@@ -183,15 +171,12 @@ def scrape_dataset_conversions(
     log(
         "scraping dataset conversions: "
         f"dataset_id={dataset_id} dataset_name={dataset_name!r} "
-        f"filter={filter_text!r} limit={limit!r} sort_by={sort_by!r} "
-        f"output_dir={output_dir}"
+        f"filter={DEFAULT_FILTER!r} output_dir={output_dir}"
     )
 
     conversions = client.orgs.list_org_dataset_conversions(
         dataset_id,
-        filter=filter_text,
-        limit=limit,
-        sort_by=sort_by,
+        filter=DEFAULT_FILTER,
     )
     for summary in conversions:
         stats.seen += 1
@@ -240,9 +225,6 @@ def scrape_datasets_conversions(
     *,
     dataset_id: str | None,
     output_dir: Path,
-    filter_text: str | None,
-    limit: int | None,
-    sort_by: Any,
 ) -> list[ScrapeStats]:
     datasets = selected_datasets(client, dataset_id)
     log(f"selected {len(datasets)} dataset(s)")
@@ -254,9 +236,6 @@ def scrape_datasets_conversions(
                 client,
                 dataset_id=current_dataset_id,
                 output_dir=output_dir,
-                filter_text=filter_text,
-                limit=limit,
-                sort_by=sort_by,
                 dataset=dataset,
             )
         )
@@ -265,54 +244,6 @@ def scrape_datasets_conversions(
 
 def total_count(stats: list[ScrapeStats], attr: str) -> int:
     return sum(int(getattr(item, attr)) for item in stats)
-
-
-def report_for_stats(stats: list[ScrapeStats], *, filter_text: str | None) -> dict[str, Any]:
-    conversions: list[dict[str, Any]] = []
-    for item in stats:
-        for conversion in item.conversions or []:
-            conversions.append(
-                {
-                    **conversion,
-                    "dataset_id": item.dataset_id,
-                    "dataset_name": item.dataset_name,
-                }
-            )
-
-    return {
-        "output_dir": str(stats[0].output_dir) if stats else "",
-        "filter": filter_text,
-        "counts": {
-            "datasets": len(stats),
-            "seen": total_count(stats, "seen"),
-            "completed": total_count(stats, "completed"),
-            "skipped_phase": total_count(stats, "skipped_phase"),
-            "fetched": total_count(stats, "fetched"),
-            "outputs_written": total_count(stats, "outputs_written"),
-            "snapshots_written": total_count(stats, "snapshots_written"),
-        },
-        "datasets": [
-            {
-                "id": item.dataset_id,
-                "name": item.dataset_name,
-                "counts": {
-                    "seen": item.seen,
-                    "completed": item.completed,
-                    "skipped_phase": item.skipped_phase,
-                    "fetched": item.fetched,
-                    "outputs_written": item.outputs_written,
-                    "snapshots_written": item.snapshots_written,
-                },
-            }
-            for item in stats
-        ],
-        "conversions": conversions,
-    }
-
-
-def write_report(path: Path, report: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def build_client(*, token: str | None, host: str | None) -> Any:
@@ -327,27 +258,6 @@ def build_client(*, token: str | None, host: str | None) -> Any:
     if token:
         return KittyCAD(token=token, **kwargs)
     return KittyCAD(**kwargs)
-
-
-def sdk_sort_mode(value: str | None) -> Any:
-    if value is None:
-        return None
-    try:
-        from kittycad import ConversionSortMode
-    except ImportError:
-        fail("install the kittycad Python SDK before running this script")
-
-    try:
-        return ConversionSortMode(value)
-    except ValueError:
-        fail(f"unsupported sort mode {value!r}; expected one of {sorted(SORT_MODES)}")
-
-
-def positive_int(value: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be greater than zero")
-    return parsed
 
 
 def env_first(*names: str) -> str | None:
@@ -371,29 +281,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path(env_first("DATASET_CONVERSIONS_OUTPUT_DIR") or "dataset-conversions"),
+        default=Path("."),
         help="Directory where conversion outputs should be written.",
-    )
-    parser.add_argument(
-        "--filter",
-        default=os.getenv("DATASET_CONVERSIONS_FILTER", DEFAULT_FILTER),
-        help=f"Dataset conversion filter passed to the SDK. Defaults to {DEFAULT_FILTER!r}.",
-    )
-    parser.add_argument(
-        "--limit",
-        type=positive_int,
-        default=(
-            positive_int(value)
-            if (value := os.getenv("DATASET_CONVERSIONS_LIMIT"))
-            else None
-        ),
-        help="Optional per-page limit passed to the SDK iterator.",
-    )
-    parser.add_argument(
-        "--sort-by",
-        choices=sorted(SORT_MODES),
-        default=env_first("DATASET_CONVERSIONS_SORT_BY"),
-        help="Optional conversion sort mode passed to the SDK iterator.",
     )
     parser.add_argument(
         "--host",
@@ -401,11 +290,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Optional API host. If unset, the KittyCAD SDK uses its default host "
             "or the standard ZOO_HOST environment variable."
         ),
-    )
-    parser.add_argument(
-        "--report",
-        type=Path,
-        help="Report JSON path. Defaults to <output-dir>/dataset-conversions-report.json.",
     )
     return parser
 
@@ -420,18 +304,12 @@ def main() -> int:
             client,
             dataset_id=args.dataset_id or None,
             output_dir=args.output_dir,
-            filter_text=args.filter or None,
-            limit=args.limit,
-            sort_by=sdk_sort_mode(args.sort_by),
         )
     finally:
         close = getattr(client, "close", None)
         if callable(close):
             close()
 
-    report = report_for_stats(stats, filter_text=args.filter or None)
-    report_path = args.report or args.output_dir / "dataset-conversions-report.json"
-    write_report(report_path, report)
     print(
         "downloaded "
         f"{total_count(stats, 'fetched')} completed conversion(s) "
@@ -439,7 +317,6 @@ def main() -> int:
         f"wrote {total_count(stats, 'outputs_written')} KCL output file(s) and "
         f"{total_count(stats, 'snapshots_written')} snapshot(s)"
     )
-    print(f"wrote {report_path}")
     return 0
 
 
