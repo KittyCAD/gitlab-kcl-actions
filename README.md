@@ -498,7 +498,8 @@ commit-dataset-conversions:
         echo "No dataset conversion changes to commit"
         exit 0
       fi
-    - git commit -m "chore: update dataset conversions [skip ci]"
+    - |
+      git commit -m "chore: update dataset conversions [skip ci]"
     - git pull --rebase origin "$CI_DEFAULT_BRANCH"
     - git push -o ci.skip origin "HEAD:$CI_DEFAULT_BRANCH"
 ```
