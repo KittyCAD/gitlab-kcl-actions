@@ -4,17 +4,16 @@
 from __future__ import annotations
 
 import argparse
-import shutil
-from dataclasses import dataclass
 import json
 import math
 import os
-from pathlib import Path, PurePosixPath
 import re
 import shlex
+import shutil
 import sys
-from typing import Any
-
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Any, NoReturn
 
 REQUIRED_METADATA = {
     "material_density": (int, float),
@@ -64,7 +63,7 @@ class Assembly:
     metadata_json: str
 
 
-def fail(message: str) -> None:
+def fail(message: str) -> NoReturn:
     raise WorkflowError(message)
 
 
@@ -253,11 +252,7 @@ def contains_path(parent: Path, child: Path) -> bool:
 
 
 def owning_assembly_dir(path: Path, assembly_dirs: set[Path]) -> Path | None:
-    matches = [
-        assembly_dir
-        for assembly_dir in assembly_dirs
-        if contains_path(assembly_dir, path)
-    ]
+    matches = [assembly_dir for assembly_dir in assembly_dirs if contains_path(assembly_dir, path)]
     if not matches:
         return None
     return max(matches, key=lambda item: len(item.parts))
@@ -303,18 +298,14 @@ def snapshot_files_for_assemblies(
     all_main_files: list[Path],
     limit_to_selected: bool,
 ) -> list[Path]:
-    snapshot_files = [
-        path for path in walk_kcl_files(repo_root) if path.name != "parameters.kcl"
-    ]
+    snapshot_files = [path for path in walk_kcl_files(repo_root) if path.name != "parameters.kcl"]
     if not limit_to_selected:
         return snapshot_files
 
     selected_dirs = {path.parent for path in selected_main_files}
     assembly_dirs = {path.parent for path in all_main_files}
     return [
-        path
-        for path in snapshot_files
-        if owning_assembly_dir(path, assembly_dirs) in selected_dirs
+        path for path in snapshot_files if owning_assembly_dir(path, assembly_dirs) in selected_dirs
     ]
 
 
@@ -342,10 +333,7 @@ def write_project_info(
         }
         missing = [path for path in selected_paths if path not in main_files_by_path]
         if missing:
-            fail(
-                "main_kcl_paths referenced missing main.kcl file(s): "
-                + ", ".join(missing)
-            )
+            fail("main_kcl_paths referenced missing main.kcl file(s): " + ", ".join(missing))
         main_files = [main_files_by_path[path] for path in selected_paths]
     elif changed_files_file is not None:
         changed_paths = load_changed_paths(changed_files_file)
@@ -449,8 +437,7 @@ def apply_project_parameters(
     if missing:
         fail(
             "parameters_json referenced parameter(s) not exported in any "
-            "parameters.kcl: "
-            + ", ".join(missing)
+            "parameters.kcl: " + ", ".join(missing)
         )
 
     for parameters_file, names in names_by_file.items():
@@ -587,9 +574,7 @@ def write_manifest(
         "assemblies": assemblies,
         "zoo_version": zoo_version,
         "host": host or None,
-        "parameters_override_keys": sorted(
-            load_json_object(parameters_json, "parameters_json")
-        ),
+        "parameters_override_keys": sorted(load_json_object(parameters_json, "parameters_json")),
         "artifacts": files,
     }
     (artifact_dir / "manifest.json").write_text(

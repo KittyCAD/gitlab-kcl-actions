@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from scripts import dataset_conversions
 
@@ -109,9 +109,7 @@ class DatasetConversionsTests(unittest.TestCase):
             self.assertEqual(stats.outputs_written, 1)
             self.assertEqual(stats.snapshots_written, 1)
 
-            conversion_dir = (
-                output_dir / "Demo Dataset" / "output" / "folder" / "model.step"
-            )
+            conversion_dir = output_dir / "Demo Dataset" / "output" / "folder" / "model.step"
             self.assertEqual((conversion_dir / "main.kcl").read_text(), "main")
             self.assertEqual((conversion_dir / "0.png").read_bytes(), b"salon-image")
 

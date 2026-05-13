@@ -449,22 +449,26 @@ fails if the token is not present.
 
 ## Local Development
 
-Run the unit tests and real Zoo flow test:
+Use `uv` and `just` for local development:
 
 ```sh
-python -m pip install .
-python -m unittest discover -s tests -v
-tests/test_kcl_artifact_workflow.sh
-python scripts/render_component.py --check
+just sync
+just lint
+just unit-test
+just generated
 ```
+
+`just check` runs lint, unit tests, shell syntax, and generated-template checks.
+`just test` runs the full Python test discovery, including live API tests.
+`just format` runs Ruff's auto-fixes and formatter.
 
 Render the self-contained GitLab component after editing scripts:
 
 ```sh
-python scripts/render_component.py
+uv run python scripts/render_component.py
 ```
 
 The real flow tests require `ZOO_API_TOKEN`. The KCL artifact workflow test also
 requires a `zoo` binary on `PATH`. GitHub CI installs the latest Zoo CLI and
-runs the real tests on every push and pull request. If the secret is missing,
-CI fails.
+runs `just kcl-artifact-workflow` on every push and pull request. If the secret
+is missing, CI fails.

@@ -18,17 +18,29 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Python dependencies
-        run: python -m pip install .
+      - uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
 
-      - name: Python unit tests
-        run: python -m unittest discover -s tests -v
+      - name: Install just
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y just
+
+      - name: Sync Python dependencies
+        run: just ci-sync
+
+      - name: Python lint
+        run: just lint
+
+      - name: Python tests
+        run: just test
 
       - name: Shell syntax
-        run: bash -n scripts/*.sh tests/*.sh
+        run: just shell
 
       - name: Component template is generated
-        run: python scripts/render_component.py --check
+        run: just generated
 
   kcl-artifact-workflow:
     runs-on: ubuntu-latest
@@ -40,6 +52,18 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+
+      - name: Install just
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y just
+
+      - name: Sync Python dependencies
+        run: just ci-sync
 
       - name: Require Zoo token
         run: |
@@ -56,4 +80,4 @@ jobs:
       - name: Run KCL artifact workflow test
         run: |
           export PATH="$RUNNER_TEMP/bin:$PATH"
-          tests/test_kcl_artifact_workflow.sh
+          just kcl-artifact-workflow

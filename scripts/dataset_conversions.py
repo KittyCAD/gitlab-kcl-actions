@@ -4,13 +4,12 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import os
-from pathlib import Path, PurePosixPath
 import re
 import sys
-from typing import Any
-
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
+from typing import Any, NoReturn
 
 LOG_PREFIX = "[dataset-conversions]"
 SAFE_PATH_PART_RE = re.compile(r"[^A-Za-z0-9._ -]+")
@@ -29,18 +28,14 @@ class ScrapeStats:
     fetched: int = 0
     outputs_written: int = 0
     snapshots_written: int = 0
-    conversions: list[dict[str, Any]] | None = None
-
-    def __post_init__(self) -> None:
-        if self.conversions is None:
-            self.conversions = []
+    conversions: list[dict[str, Any]] = field(default_factory=list)
 
 
 def log(message: str) -> None:
     print(f"{LOG_PREFIX} {message}", file=sys.stderr, flush=True)
 
 
-def fail(message: str) -> None:
+def fail(message: str) -> NoReturn:
     raise SystemExit(f"error: {message}")
 
 
@@ -84,8 +79,7 @@ def ensure_png_bytes(image: Any, *, conversion_id: str, group: str, index: int) 
     data = getattr(image, "data_base64", None)
     if not isinstance(data, (bytes, bytearray, memoryview)):
         fail(
-            f"conversion {conversion_id} {group} snapshot {index} did not contain "
-            "SDK-decoded bytes"
+            f"conversion {conversion_id} {group} snapshot {index} did not contain SDK-decoded bytes"
         )
     return bytes(data)
 
@@ -124,11 +118,9 @@ def write_conversion_artifacts(
     summary: Any,
     details: Any,
 ) -> dict[str, Any]:
-    conversion_id = str(getattr(summary, "id"))
-    file_path = str(getattr(summary, "file_path"))
-    conversion_dir = output_dir / dataset_dir_name / "output" / safe_relative_path(
-        file_path
-    )
+    conversion_id = str(summary.id)
+    file_path = str(summary.file_path)
+    conversion_dir = output_dir / dataset_dir_name / "output" / safe_relative_path(file_path)
 
     output_paths: list[str] = []
     path = conversion_dir / "main.kcl"
@@ -161,7 +153,7 @@ def scrape_dataset_conversions(
 ) -> ScrapeStats:
     if dataset is None:
         dataset = client.orgs.get_org_dataset(dataset_id)
-    dataset_name = str(getattr(dataset, "name"))
+    dataset_name = str(dataset.name)
     dataset_dir_name = safe_path_part(dataset_name, fallback=dataset_id)
     stats = ScrapeStats(
         dataset_id=dataset_id,
@@ -180,10 +172,10 @@ def scrape_dataset_conversions(
     )
     for summary in conversions:
         stats.seen += 1
-        conversion_id = str(getattr(summary, "id"))
+        conversion_id = str(summary.id)
         phase = enum_value(getattr(summary, "phase", ""))
         status = enum_value(getattr(summary, "status", ""))
-        file_path = str(getattr(summary, "file_path"))
+        file_path = str(summary.file_path)
         log(
             "conversion summary: "
             f"id={conversion_id} phase={phase} status={status} file_path={file_path!r}"
@@ -230,7 +222,7 @@ def scrape_datasets_conversions(
     log(f"selected {len(datasets)} dataset(s)")
     stats: list[ScrapeStats] = []
     for dataset in datasets:
-        current_dataset_id = str(getattr(dataset, "id"))
+        current_dataset_id = str(dataset.id)
         stats.append(
             scrape_dataset_conversions(
                 client,
@@ -325,4 +317,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except KeyboardInterrupt:
         print("interrupted", file=sys.stderr)
-        raise SystemExit(130)
+        raise SystemExit(130) from None

@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 KCL_TARGET = ROOT / "templates" / "kcl-artifacts.yml"
@@ -76,8 +75,7 @@ def render_install() -> str:
 def render_kcl_artifacts() -> str:
     installer = (ROOT / "scripts" / "install-zoo-cli.sh").read_text(encoding="utf-8")
     scripts = {
-        name: path.read_text(encoding="utf-8")
-        for name, path in KCL_ARTIFACT_SCRIPT_FILES.items()
+        name: path.read_text(encoding="utf-8") for name, path in KCL_ARTIFACT_SCRIPT_FILES.items()
     }
     body = """spec:
   inputs:

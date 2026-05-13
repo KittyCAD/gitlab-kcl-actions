@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from scripts import kcl_artifacts
-
 
 REQUIRED_METADATA = {
     "material_density": 7850,
@@ -34,7 +33,7 @@ class KclArtifactsTests(unittest.TestCase):
                     [
                         "@settings(defaultLengthUnit = mm)",
                         "export width = 20 // keep this",
-                        "export label = \"old\"",
+                        'export label = "old"',
                         "export enabled = false",
                     ]
                 )
@@ -53,7 +52,7 @@ class KclArtifactsTests(unittest.TestCase):
                     [
                         "@settings(defaultLengthUnit = mm)",
                         "export width = 42 // keep this",
-                        "export label = \"new\"",
+                        'export label = "new"',
                         "export enabled = true",
                     ]
                 )
@@ -71,7 +70,7 @@ class KclArtifactsTests(unittest.TestCase):
                         "export depth = 8",
                         "export radius = 4",
                         "export count = 5",
-                        "export label = \"old\"",
+                        'export label = "old"',
                         "export enabled = false",
                     ]
                 )
@@ -90,7 +89,7 @@ class KclArtifactsTests(unittest.TestCase):
                         "export depth = 8",
                         "export radius = 4",
                         "export count = 5",
-                        "export label = \"old\"",
+                        'export label = "old"',
                         "export enabled = false",
                     ]
                 )
