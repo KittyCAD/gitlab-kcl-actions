@@ -21,7 +21,9 @@ cp -R "$repo_root/tests/fixtures/basic/." "$project/"
 
 (
   cd "$project"
-  KCL_PARAMETERS_JSON='{"width": 24, "depth": 6}' "$repo_root/scripts/run-kcl-artifacts.sh"
+  KCL_MAIN_KCL_PATHS='["main.kcl","assembly-2/main.kcl"]' \
+    KCL_PARAMETERS_JSON='{"width": 24, "depth": 6}' \
+    "$repo_root/scripts/run-kcl-artifacts.sh"
 )
 
 test -s "$project/kcl-artifacts/assemblies/root/model.step"

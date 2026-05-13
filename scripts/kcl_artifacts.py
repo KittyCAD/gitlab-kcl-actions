@@ -121,6 +121,15 @@ def normalize_main_kcl_path(raw_path: str) -> str:
     return path.as_posix()
 
 
+def normalize_repo_path(raw_path: str, description: str) -> str:
+    path = PurePosixPath(raw_path)
+    if raw_path == "" or path.is_absolute():
+        fail(f"{description} path must be relative: {raw_path!r}")
+    if any(part in {"", ".", ".."} for part in path.parts):
+        fail(f"{description} path must not contain empty, '.', or '..' parts: {raw_path!r}")
+    return path.as_posix()
+
+
 def kcl_literal(value: Any) -> str:
     if value is None:
         return "none"
@@ -253,16 +262,50 @@ def owning_assembly_dir(path: Path, assembly_dirs: set[Path]) -> Path | None:
     return max(matches, key=lambda item: len(item.parts))
 
 
+def load_changed_paths(changed_files_file: Path | None) -> list[str]:
+    if changed_files_file is None:
+        return []
+    if not changed_files_file.is_file():
+        fail(f"changed files list does not exist: {changed_files_file}")
+
+    output: list[str] = []
+    seen: set[str] = set()
+    for line in changed_files_file.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        path = normalize_repo_path(line, "changed file")
+        if PurePosixPath(path).parts[0] in SKIPPED_DIRS:
+            continue
+        if path not in seen:
+            seen.add(path)
+            output.append(path)
+    return output
+
+
+def main_files_for_changed_paths(
+    repo_root: Path,
+    all_main_files: list[Path],
+    changed_paths: list[str],
+) -> list[Path]:
+    assembly_dirs = {path.parent for path in all_main_files}
+    selected_dirs: set[Path] = set()
+    for relative_path in changed_paths:
+        owner = owning_assembly_dir(repo_root / relative_path, assembly_dirs)
+        if owner is not None:
+            selected_dirs.add(owner)
+    return [main_kcl for main_kcl in all_main_files if main_kcl.parent in selected_dirs]
+
+
 def snapshot_files_for_assemblies(
     repo_root: Path,
     selected_main_files: list[Path],
     all_main_files: list[Path],
-    selected_from_input: bool,
+    limit_to_selected: bool,
 ) -> list[Path]:
     snapshot_files = [
         path for path in walk_kcl_files(repo_root) if path.name != "parameters.kcl"
     ]
-    if not selected_from_input:
+    if not limit_to_selected:
         return snapshot_files
 
     selected_dirs = {path.parent for path in selected_main_files}
@@ -279,14 +322,19 @@ def write_project_info(
     assemblies_out: Path,
     snapshots_out: Path,
     main_kcl_paths_json: str = "[]",
+    changed_files_file: Path | None = None,
 ) -> None:
     repo_root = repo_root.resolve()
     all_main_files = find_named_files(repo_root, "main.kcl")
     if not all_main_files:
+        if changed_files_file is not None:
+            assemblies_out.write_text("", encoding="utf-8")
+            snapshots_out.write_text("", encoding="utf-8")
+            return
         fail("required main.kcl file was not found")
 
     selected_paths = load_main_kcl_paths(main_kcl_paths_json, "main_kcl_paths")
-    selected_from_input = bool(selected_paths)
+    limit_to_selected = bool(selected_paths) or changed_files_file is not None
     if selected_paths:
         main_files_by_path = {
             relative_posix(main_kcl, repo_root): main_kcl for main_kcl in all_main_files
@@ -298,6 +346,9 @@ def write_project_info(
                 + ", ".join(missing)
             )
         main_files = [main_files_by_path[path] for path in selected_paths]
+    elif changed_files_file is not None:
+        changed_paths = load_changed_paths(changed_files_file)
+        main_files = main_files_for_changed_paths(repo_root, all_main_files, changed_paths)
     else:
         main_files = all_main_files
 
@@ -336,7 +387,7 @@ def write_project_info(
         repo_root,
         main_files,
         all_main_files,
-        selected_from_input,
+        limit_to_selected,
     )
 
     assemblies_out.write_text(
@@ -534,6 +585,7 @@ def build_parser() -> argparse.ArgumentParser:
     info_parser.add_argument("--assemblies-out", required=True, type=Path)
     info_parser.add_argument("--snapshots-out", required=True, type=Path)
     info_parser.add_argument("--main-kcl-paths", default="[]")
+    info_parser.add_argument("--changed-files-file", type=Path)
 
     metadata_parser = subparsers.add_parser("metadata-env")
     metadata_parser.add_argument("--metadata-file", required=True, type=Path)
@@ -573,6 +625,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.assemblies_out,
                 args.snapshots_out,
                 args.main_kcl_paths,
+                args.changed_files_file,
             )
         elif args.command == "metadata-env":
             write_metadata_env(args.metadata_file, args.env_out)

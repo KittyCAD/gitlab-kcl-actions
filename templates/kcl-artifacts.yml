@@ -11,7 +11,7 @@ spec:
       description: "JSON object of values to replace in sibling parameters.kcl files before running Zoo."
     main_kcl_paths:
       default: "[]"
-      description: "Optional bare path, JSON string, or JSON array of main.kcl paths. Empty processes every main.kcl."
+      description: "Optional bare path, JSON string, or JSON array of main.kcl paths. Empty processes changed assemblies only."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."
@@ -168,7 +168,7 @@ spec:
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates tar coreutils findutils
+    - apt-get install -y --no-install-recommends ca-certificates tar coreutils findutils git
     - rm -rf /var/lib/apt/lists/*
     - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
     - |
@@ -293,6 +293,15 @@ spec:
               fail(f"main.kcl path must not contain empty, '.', or '..' parts: {raw_path!r}")
           if path.name != "main.kcl":
               fail(f"main.kcl path must point to a file named main.kcl: {raw_path!r}")
+          return path.as_posix()
+
+
+      def normalize_repo_path(raw_path: str, description: str) -> str:
+          path = PurePosixPath(raw_path)
+          if raw_path == "" or path.is_absolute():
+              fail(f"{description} path must be relative: {raw_path!r}")
+          if any(part in {"", ".", ".."} for part in path.parts):
+              fail(f"{description} path must not contain empty, '.', or '..' parts: {raw_path!r}")
           return path.as_posix()
 
 
@@ -428,16 +437,50 @@ spec:
           return max(matches, key=lambda item: len(item.parts))
 
 
+      def load_changed_paths(changed_files_file: Path | None) -> list[str]:
+          if changed_files_file is None:
+              return []
+          if not changed_files_file.is_file():
+              fail(f"changed files list does not exist: {changed_files_file}")
+
+          output: list[str] = []
+          seen: set[str] = set()
+          for line in changed_files_file.read_text(encoding="utf-8").splitlines():
+              if not line:
+                  continue
+              path = normalize_repo_path(line, "changed file")
+              if PurePosixPath(path).parts[0] in SKIPPED_DIRS:
+                  continue
+              if path not in seen:
+                  seen.add(path)
+                  output.append(path)
+          return output
+
+
+      def main_files_for_changed_paths(
+          repo_root: Path,
+          all_main_files: list[Path],
+          changed_paths: list[str],
+      ) -> list[Path]:
+          assembly_dirs = {path.parent for path in all_main_files}
+          selected_dirs: set[Path] = set()
+          for relative_path in changed_paths:
+              owner = owning_assembly_dir(repo_root / relative_path, assembly_dirs)
+              if owner is not None:
+                  selected_dirs.add(owner)
+          return [main_kcl for main_kcl in all_main_files if main_kcl.parent in selected_dirs]
+
+
       def snapshot_files_for_assemblies(
           repo_root: Path,
           selected_main_files: list[Path],
           all_main_files: list[Path],
-          selected_from_input: bool,
+          limit_to_selected: bool,
       ) -> list[Path]:
           snapshot_files = [
               path for path in walk_kcl_files(repo_root) if path.name != "parameters.kcl"
           ]
-          if not selected_from_input:
+          if not limit_to_selected:
               return snapshot_files
 
           selected_dirs = {path.parent for path in selected_main_files}
@@ -454,14 +497,19 @@ spec:
           assemblies_out: Path,
           snapshots_out: Path,
           main_kcl_paths_json: str = "[]",
+          changed_files_file: Path | None = None,
       ) -> None:
           repo_root = repo_root.resolve()
           all_main_files = find_named_files(repo_root, "main.kcl")
           if not all_main_files:
+              if changed_files_file is not None:
+                  assemblies_out.write_text("", encoding="utf-8")
+                  snapshots_out.write_text("", encoding="utf-8")
+                  return
               fail("required main.kcl file was not found")
 
           selected_paths = load_main_kcl_paths(main_kcl_paths_json, "main_kcl_paths")
-          selected_from_input = bool(selected_paths)
+          limit_to_selected = bool(selected_paths) or changed_files_file is not None
           if selected_paths:
               main_files_by_path = {
                   relative_posix(main_kcl, repo_root): main_kcl for main_kcl in all_main_files
@@ -473,6 +521,9 @@ spec:
                       + ", ".join(missing)
                   )
               main_files = [main_files_by_path[path] for path in selected_paths]
+          elif changed_files_file is not None:
+              changed_paths = load_changed_paths(changed_files_file)
+              main_files = main_files_for_changed_paths(repo_root, all_main_files, changed_paths)
           else:
               main_files = all_main_files
 
@@ -511,7 +562,7 @@ spec:
               repo_root,
               main_files,
               all_main_files,
-              selected_from_input,
+              limit_to_selected,
           )
 
           assemblies_out.write_text(
@@ -709,6 +760,7 @@ spec:
           info_parser.add_argument("--assemblies-out", required=True, type=Path)
           info_parser.add_argument("--snapshots-out", required=True, type=Path)
           info_parser.add_argument("--main-kcl-paths", default="[]")
+          info_parser.add_argument("--changed-files-file", type=Path)
 
           metadata_parser = subparsers.add_parser("metadata-env")
           metadata_parser.add_argument("--metadata-file", required=True, type=Path)
@@ -748,6 +800,7 @@ spec:
                       args.assemblies_out,
                       args.snapshots_out,
                       args.main_kcl_paths,
+                      args.changed_files_file,
                   )
               elif args.command == "metadata-env":
                   write_metadata_env(args.metadata_file, args.env_out)
@@ -781,8 +834,6 @@ spec:
       #!/usr/bin/env bash
       set -Eeuo pipefail
 
-      : "${ZOO_API_TOKEN:?ZOO_API_TOKEN is required for Zoo CLI artifact generation}"
-
       script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
       python_helper="${KCL_ARTIFACTS_PY:-${script_dir}/kcl_artifacts.py}"
       repo_root="$(pwd)"
@@ -808,6 +859,67 @@ spec:
       state_dir="${tmp_parent}/state"
       mkdir -p "$workspace" "$state_dir"
 
+      zero_sha() {
+        [[ "$1" =~ ^0+$ ]]
+      }
+
+      git_commit_exists() {
+        git -C "$repo_root" cat-file -e "${1}^{commit}" >/dev/null 2>&1
+      }
+
+      ensure_git_commit() {
+        local commit="$1"
+        if git_commit_exists "$commit"; then
+          return 0
+        fi
+        git -C "$repo_root" fetch --no-tags --depth=100 origin "$commit" >/dev/null 2>&1 || true
+        git_commit_exists "$commit"
+      }
+
+      write_changed_files() {
+        local output="$1"
+        : > "$output"
+
+        if ! command -v git >/dev/null 2>&1; then
+          echo "git is not available; no changed KCL assemblies can be selected" >&2
+          return 0
+        fi
+        if ! git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          echo "not in a git worktree; no changed KCL assemblies can be selected" >&2
+          return 0
+        fi
+
+        local head="${CI_COMMIT_SHA:-HEAD}"
+        local base=""
+        if [[ -n "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" ]] && ! zero_sha "$CI_MERGE_REQUEST_DIFF_BASE_SHA"; then
+          base="$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+        elif [[ -n "${CI_COMMIT_BEFORE_SHA:-}" ]] && ! zero_sha "$CI_COMMIT_BEFORE_SHA"; then
+          base="$CI_COMMIT_BEFORE_SHA"
+        fi
+
+        if [[ -n "$base" ]] && ensure_git_commit "$base"; then
+          if git -C "$repo_root" diff --name-only --diff-filter=ACMRTD "$base" "$head" > "$output"; then
+            return 0
+          fi
+        fi
+
+        if git -C "$repo_root" rev-parse --verify -q "${head}^{commit}" >/dev/null && \
+          git -C "$repo_root" rev-parse --verify -q "${head}^" >/dev/null; then
+          git -C "$repo_root" diff-tree --no-commit-id --name-only -r "$head" > "$output"
+          return 0
+        fi
+
+        git -C "$repo_root" diff --name-only --diff-filter=ACMRTD HEAD -- > "$output" || true
+        git -C "$repo_root" diff --name-only --diff-filter=ACMRTD --cached >> "$output" || true
+        sort -u -o "$output" "$output"
+      }
+
+      changed_files_args=()
+      if [[ "$main_kcl_paths" == "[]" ]]; then
+        write_changed_files "$state_dir/changed-files.list"
+        changed_files_args=(--changed-files-file "$state_dir/changed-files.list")
+      fi
+
       tar \
         --exclude='./.git' \
         --exclude='./.gitlab-kcl-actions' \
@@ -823,12 +935,20 @@ spec:
         --repo-root "$workspace" \
         --assemblies-out "$state_dir/assemblies.tsv" \
         --snapshots-out "$state_dir/snapshots.list" \
-        --main-kcl-paths "$main_kcl_paths"
+        --main-kcl-paths "$main_kcl_paths" \
+        "${changed_files_args[@]}"
+
+      if [[ ! -s "$state_dir/assemblies.tsv" ]]; then
+        echo "No changed KCL assembly directories found; nothing to do."
+        exit 0
+      fi
 
       python3 "$python_helper" apply-project-parameters \
         --repo-root "$workspace" \
         --assemblies-file "$state_dir/assemblies.tsv" \
         --overrides-json "$parameters_json"
+
+      : "${ZOO_API_TOKEN:?ZOO_API_TOKEN is required for Zoo CLI artifact generation}"
 
       zoo_cmd=(zoo)
       if [[ -n "$host" ]]; then

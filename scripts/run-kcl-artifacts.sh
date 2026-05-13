@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-: "${ZOO_API_TOKEN:?ZOO_API_TOKEN is required for Zoo CLI artifact generation}"
-
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python_helper="${KCL_ARTIFACTS_PY:-${script_dir}/kcl_artifacts.py}"
 repo_root="$(pwd)"
@@ -28,6 +26,67 @@ workspace="${tmp_parent}/repo"
 state_dir="${tmp_parent}/state"
 mkdir -p "$workspace" "$state_dir"
 
+zero_sha() {
+  [[ "$1" =~ ^0+$ ]]
+}
+
+git_commit_exists() {
+  git -C "$repo_root" cat-file -e "${1}^{commit}" >/dev/null 2>&1
+}
+
+ensure_git_commit() {
+  local commit="$1"
+  if git_commit_exists "$commit"; then
+    return 0
+  fi
+  git -C "$repo_root" fetch --no-tags --depth=100 origin "$commit" >/dev/null 2>&1 || true
+  git_commit_exists "$commit"
+}
+
+write_changed_files() {
+  local output="$1"
+  : > "$output"
+
+  if ! command -v git >/dev/null 2>&1; then
+    echo "git is not available; no changed KCL assemblies can be selected" >&2
+    return 0
+  fi
+  if ! git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "not in a git worktree; no changed KCL assemblies can be selected" >&2
+    return 0
+  fi
+
+  local head="${CI_COMMIT_SHA:-HEAD}"
+  local base=""
+  if [[ -n "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" ]] && ! zero_sha "$CI_MERGE_REQUEST_DIFF_BASE_SHA"; then
+    base="$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+  elif [[ -n "${CI_COMMIT_BEFORE_SHA:-}" ]] && ! zero_sha "$CI_COMMIT_BEFORE_SHA"; then
+    base="$CI_COMMIT_BEFORE_SHA"
+  fi
+
+  if [[ -n "$base" ]] && ensure_git_commit "$base"; then
+    if git -C "$repo_root" diff --name-only --diff-filter=ACMRTD "$base" "$head" > "$output"; then
+      return 0
+    fi
+  fi
+
+  if git -C "$repo_root" rev-parse --verify -q "${head}^{commit}" >/dev/null && \
+    git -C "$repo_root" rev-parse --verify -q "${head}^" >/dev/null; then
+    git -C "$repo_root" diff-tree --no-commit-id --name-only -r "$head" > "$output"
+    return 0
+  fi
+
+  git -C "$repo_root" diff --name-only --diff-filter=ACMRTD HEAD -- > "$output" || true
+  git -C "$repo_root" diff --name-only --diff-filter=ACMRTD --cached >> "$output" || true
+  sort -u -o "$output" "$output"
+}
+
+changed_files_args=()
+if [[ "$main_kcl_paths" == "[]" ]]; then
+  write_changed_files "$state_dir/changed-files.list"
+  changed_files_args=(--changed-files-file "$state_dir/changed-files.list")
+fi
+
 tar \
   --exclude='./.git' \
   --exclude='./.gitlab-kcl-actions' \
@@ -43,12 +102,20 @@ python3 "$python_helper" project-info \
   --repo-root "$workspace" \
   --assemblies-out "$state_dir/assemblies.tsv" \
   --snapshots-out "$state_dir/snapshots.list" \
-  --main-kcl-paths "$main_kcl_paths"
+  --main-kcl-paths "$main_kcl_paths" \
+  "${changed_files_args[@]}"
+
+if [[ ! -s "$state_dir/assemblies.tsv" ]]; then
+  echo "No changed KCL assembly directories found; nothing to do."
+  exit 0
+fi
 
 python3 "$python_helper" apply-project-parameters \
   --repo-root "$workspace" \
   --assemblies-file "$state_dir/assemblies.tsv" \
   --overrides-json "$parameters_json"
+
+: "${ZOO_API_TOKEN:?ZOO_API_TOKEN is required for Zoo CLI artifact generation}"
 
 zoo_cmd=(zoo)
 if [[ -n "$host" ]]; then

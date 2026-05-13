@@ -224,6 +224,86 @@ class KclArtifactsTests(unittest.TestCase):
                 ["assembly-2/main.kcl", "assembly-2/part.kcl"],
             )
 
+    def test_project_info_can_filter_to_changed_assembly_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "main.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "metadata.json")
+            (root / "part.kcl").write_text("", encoding="utf-8")
+            nested = root / "assembly-2"
+            nested.mkdir()
+            (nested / "main.kcl").write_text("", encoding="utf-8")
+            (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(nested / "metadata.json")
+            (nested / "part.kcl").write_text("", encoding="utf-8")
+            changed_files = root / "changed-files.list"
+            changed_files.write_text("assembly-2/part.kcl\n", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                changed_files_file=changed_files,
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                [
+                    "assembly-2\tassembly-2/main.kcl\tassembly-2/parameters.kcl\tassembly-2/metadata.json"
+                ],
+            )
+            self.assertEqual(
+                snapshots_out.read_text(encoding="utf-8").splitlines(),
+                ["assembly-2/main.kcl", "assembly-2/part.kcl"],
+            )
+
+    def test_project_info_allows_no_changed_assembly_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "readme.md").write_text("", encoding="utf-8")
+            nested = root / "assembly-2"
+            nested.mkdir()
+            (nested / "main.kcl").write_text("", encoding="utf-8")
+            (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(nested / "metadata.json")
+            changed_files = root / "changed-files.list"
+            changed_files.write_text("docs/readme.md\n", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                changed_files_file=changed_files,
+            )
+
+            self.assertEqual(assemblies_out.read_text(encoding="utf-8"), "")
+            self.assertEqual(snapshots_out.read_text(encoding="utf-8"), "")
+
+    def test_project_info_allows_no_main_kcl_when_selecting_changed_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            changed_files = root / "changed-files.list"
+            changed_files.write_text("README.md\n", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                changed_files_file=changed_files,
+            )
+
+            self.assertEqual(assemblies_out.read_text(encoding="utf-8"), "")
+            self.assertEqual(snapshots_out.read_text(encoding="utf-8"), "")
+
     def test_project_info_can_filter_to_one_bare_main_kcl_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -93,7 +93,7 @@ def render_kcl_artifacts() -> str:
       description: "JSON object of values to replace in sibling parameters.kcl files before running Zoo."
     main_kcl_paths:
       default: "[]"
-      description: "Optional bare path, JSON string, or JSON array of main.kcl paths. Empty processes every main.kcl."
+      description: "Optional bare path, JSON string, or JSON array of main.kcl paths. Empty processes changed assemblies only."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."
@@ -159,7 +159,7 @@ def render_kcl_artifacts() -> str:
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates tar coreutils findutils
+    - apt-get install -y --no-install-recommends ca-certificates tar coreutils findutils git
     - rm -rf /var/lib/apt/lists/*
     - mkdir -p .gitlab-kcl-actions .kcl-tools/bin
 """

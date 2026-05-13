@@ -96,8 +96,10 @@ include:
 ```
 
 `main_kcl_paths` accepts a bare relative path, a JSON string, or a JSON array of
-relative paths to files named `main.kcl`. If it is empty, every discovered
-`main.kcl` is processed.
+relative paths to files named `main.kcl`. If it is empty, the workflow detects
+changed files with Git and processes only the assembly directories that contain
+or own those changes. If no changed file belongs to a directory with a
+`main.kcl`, the job exits successfully without producing artifacts.
 
 GitLab evaluates `spec:inputs` when the pipeline is created. Per GitLab's
 input limits, the string inside an interpolation block must stay under 1 KB, so
@@ -116,7 +118,7 @@ spec:
     kcl_main_kcl_paths:
       type: string
       default: "[]"
-      description: "Optional JSON string or array of main.kcl paths to process."
+      description: "Optional JSON string or array of main.kcl paths to process. Empty auto-selects changed assemblies."
 ---
 
 include:
@@ -168,7 +170,10 @@ include:
 Python 3.12 and be Debian-compatible because the artifact job also installs
 small system packages with `apt-get`.
 
-The job expects `ZOO_API_TOKEN` to be available in CI/CD variables.
+The job expects `ZOO_API_TOKEN` to be available in CI/CD variables when changed
+assemblies are selected and artifacts need to be generated. If the default
+changed-file detection finds no matching assembly, the job exits before using
+the token.
 
 ## Repository Contract
 
@@ -333,9 +338,9 @@ directory path relative to the repo, so `assembly-2/main.kcl` writes under
 `assemblies/assembly-2/`.
 
 Per-file snapshots are generated for every `.kcl` file except `parameters.kcl`,
-preserving the source path under `kcl-artifacts/snapshots/`. If
-`main_kcl_paths` is set, assembly artifacts and per-file snapshots are limited
-to the selected assembly directories.
+preserving the source path under `kcl-artifacts/snapshots/`. Assembly artifacts
+and per-file snapshots are limited to the selected assembly directories, whether
+they were selected by `main_kcl_paths` or by changed-file detection.
 
 The workflow stops after producing artifacts. Uploading those artifacts is out
 of scope and should happen in a later GitLab job.
