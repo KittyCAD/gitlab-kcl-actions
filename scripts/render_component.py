@@ -124,6 +124,15 @@ def render_kcl_artifacts() -> str:
     camera_padding:
       default: "0.1"
       description: "Camera padding passed to zoo kcl snapshot."
+    parallelism:
+      default: "4"
+      description: "Maximum number of concurrent Zoo CLI artifact commands."
+    zoo_attempts:
+      default: "4"
+      description: "Maximum attempts for each Zoo CLI artifact command."
+    zoo_retry_delay:
+      default: "10"
+      description: "Seconds to wait between failed Zoo CLI artifact command attempts."
 ---
 "$[[ inputs.job-name ]]-install-zoo-cli":
   stage: $[[ inputs.stage ]]
@@ -158,6 +167,9 @@ def render_kcl_artifacts() -> str:
     KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
+    KCL_ZOO_PARALLELISM: '$[[ inputs.parallelism ]]'
+    KCL_ZOO_ATTEMPTS: '$[[ inputs.zoo_attempts ]]'
+    KCL_ZOO_RETRY_DELAY: '$[[ inputs.zoo_retry_delay ]]'
   before_script:
     - apt-get update
     - apt-get install -y --no-install-recommends ca-certificates tar coreutils findutils git

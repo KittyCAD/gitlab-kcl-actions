@@ -45,6 +45,15 @@ spec:
     camera_padding:
       default: "0.1"
       description: "Camera padding passed to zoo kcl snapshot."
+    parallelism:
+      default: "4"
+      description: "Maximum number of concurrent Zoo CLI artifact commands."
+    zoo_attempts:
+      default: "4"
+      description: "Maximum attempts for each Zoo CLI artifact command."
+    zoo_retry_delay:
+      default: "10"
+      description: "Seconds to wait between failed Zoo CLI artifact command attempts."
 ---
 "$[[ inputs.job-name ]]-install-zoo-cli":
   stage: $[[ inputs.stage ]]
@@ -170,6 +179,9 @@ spec:
     KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
+    KCL_ZOO_PARALLELISM: '$[[ inputs.parallelism ]]'
+    KCL_ZOO_ATTEMPTS: '$[[ inputs.zoo_attempts ]]'
+    KCL_ZOO_RETRY_DELAY: '$[[ inputs.zoo_retry_delay ]]'
   before_script:
     - apt-get update
     - apt-get install -y --no-install-recommends ca-certificates tar coreutils findutils git
@@ -899,14 +911,34 @@ spec:
       fi
       camera_style="${KCL_CAMERA_STYLE:-ortho}"
       camera_padding="${KCL_CAMERA_PADDING:-0.1}"
-      zoo_attempts="${KCL_ZOO_ATTEMPTS:-3}"
-      zoo_retry_delay="${KCL_ZOO_RETRY_DELAY:-5}"
+      zoo_attempts="${KCL_ZOO_ATTEMPTS:-4}"
+      zoo_retry_delay="${KCL_ZOO_RETRY_DELAY:-10}"
+      zoo_parallelism="${KCL_ZOO_PARALLELISM:-4}"
+      if ! [[ "$zoo_attempts" =~ ^[1-9][0-9]*$ ]]; then
+        echo "error: KCL_ZOO_ATTEMPTS must be a positive integer, got ${zoo_attempts}" >&2
+        exit 1
+      fi
+      if ! [[ "$zoo_retry_delay" =~ ^[0-9]+$ ]]; then
+        echo "error: KCL_ZOO_RETRY_DELAY must be a non-negative integer, got ${zoo_retry_delay}" >&2
+        exit 1
+      fi
+      if ! [[ "$zoo_parallelism" =~ ^[1-9][0-9]*$ ]]; then
+        echo "error: KCL_ZOO_PARALLELISM must be a positive integer, got ${zoo_parallelism}" >&2
+        exit 1
+      fi
 
       tmp_parent="$(mktemp -d)"
       trap 'rm -rf "$tmp_parent"' EXIT
       workspace="${tmp_parent}/repo"
       state_dir="${tmp_parent}/state"
       mkdir -p "$workspace" "$state_dir"
+      zoo_semaphore_fifo="$state_dir/zoo-semaphore"
+      mkfifo "$zoo_semaphore_fifo"
+      exec {zoo_semaphore_fd}<>"$zoo_semaphore_fifo"
+      rm -f "$zoo_semaphore_fifo"
+      for ((zoo_slot = 0; zoo_slot < zoo_parallelism; zoo_slot += 1)); do
+        printf 'slot\n' >&"$zoo_semaphore_fd"
+      done
 
       zero_sha() {
         [[ "$1" =~ ^0+$ ]]
@@ -1006,11 +1038,29 @@ spec:
 
       zoo_version="$(zoo version)"
 
+      with_zoo_slot() {
+        local token
+        local status=0
+
+        if ! read -r -u "$zoo_semaphore_fd" token; then
+          echo "error: failed to acquire Zoo command slot" >&2
+          return 1
+        fi
+
+        set +e
+        "$@"
+        status="$?"
+        set -e
+
+        printf 'slot\n' >&"$zoo_semaphore_fd"
+        return "$status"
+      }
+
       run_zoo() {
         local attempt=1
         local status=0
         while true; do
-          if "$@"; then
+          if with_zoo_slot "$@"; then
             return 0
           else
             status="$?"
@@ -1027,13 +1077,13 @@ spec:
       write_zoo_output() {
         local destination="$1"
         shift
-        local tmp="${state_dir}/$(basename "$destination").tmp"
+        local tmp
         local attempt=1
         local status=0
 
         while true; do
-          rm -f "$tmp"
-          if "$@" > "$tmp"; then
+          tmp="$(mktemp "${state_dir}/$(basename "$destination").XXXXXX.tmp")"
+          if with_zoo_slot "$@" > "$tmp"; then
             mv "$tmp" "$destination"
             return 0
           else
@@ -1046,6 +1096,55 @@ spec:
           echo >&2 "Zoo command failed with status ${status}; retrying (${attempt}/${zoo_attempts})..."
           sleep "$zoo_retry_delay"
           attempt=$((attempt + 1))
+        done
+      }
+
+      background_pids=()
+      background_names=()
+
+      finish_background_job() {
+        local pid="${background_pids[0]}"
+        local name="${background_names[0]}"
+        local status=0
+        local remaining_pid
+
+        background_pids=("${background_pids[@]:1}")
+        background_names=("${background_names[@]:1}")
+
+        set +e
+        wait "$pid"
+        status="$?"
+        set -e
+        if [[ "$status" -eq 0 ]]; then
+          return 0
+        fi
+
+        echo "error: background task failed with status ${status}: ${name}" >&2
+        for remaining_pid in "${background_pids[@]}"; do
+          kill "$remaining_pid" 2>/dev/null || true
+        done
+        for remaining_pid in "${background_pids[@]}"; do
+          wait "$remaining_pid" 2>/dev/null || true
+        done
+        exit "$status"
+      }
+
+      run_background() {
+        local name="$1"
+        shift
+
+        "$@" &
+        background_pids+=("$!")
+        background_names+=("$name")
+
+        if [[ "${#background_pids[@]}" -ge "$zoo_parallelism" ]]; then
+          finish_background_job
+        fi
+      }
+
+      wait_for_background_jobs() {
+        while [[ "${#background_pids[@]}" -gt 0 ]]; do
+          finish_background_job
         done
       }
 
@@ -1072,6 +1171,9 @@ spec:
         local main_kcl="$3"
         local export_dir="$4"
         local destination="$5"
+        local exported_count=0
+        local exported_file=""
+        local candidate
 
         mkdir -p "$export_dir"
         run_zoo "${zoo_cmd[@]}" kcl export \
@@ -1080,8 +1182,6 @@ spec:
           "$main_kcl" \
           "$export_dir"
 
-        exported_count=0
-        exported_file=""
         while IFS= read -r candidate; do
           exported_count=$((exported_count + 1))
           exported_file="$candidate"
@@ -1111,11 +1211,16 @@ spec:
           "$main_kcl"
       }
 
-      assembly_index=0
-      while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
-        [ -n "$assembly_id" ] || continue
-        assembly_index=$((assembly_index + 1))
-        assembly_dir="$artifact_dir/assemblies/$assembly_id"
+      process_assembly() {
+        local assembly_index="$1"
+        local assembly_id="$2"
+        local main_kcl="$3"
+        local metadata_json="$4"
+        local assembly_dir="$artifact_dir/assemblies/$assembly_id"
+        local metadata_env
+        local analysis_file
+        local bounding_box_analysis_file
+
         mkdir -p "$assembly_dir"
 
         metadata_env="${state_dir}/metadata-${assembly_index}.env"
@@ -1131,18 +1236,46 @@ spec:
         analysis_file="$assembly_dir/analysis.json"
         write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT"
 
+        local step_pid
+        local gltf_pid
+        local step_status=0
+        local gltf_status=0
+
         export_one \
           step \
           step \
           "$main_kcl" \
           "$state_dir/export-step-${assembly_index}" \
-          "$assembly_dir/model.step"
+          "$assembly_dir/model.step" &
+        step_pid="$!"
+
         export_one \
           gltf \
           gltf \
           "$main_kcl" \
           "$state_dir/export-gltf-${assembly_index}" \
-          "$assembly_dir/model.gltf"
+          "$assembly_dir/model.gltf" &
+        gltf_pid="$!"
+
+        set +e
+        wait "$step_pid"
+        step_status="$?"
+        wait "$gltf_pid"
+        gltf_status="$?"
+        set -e
+
+        if [[ "$step_status" -ne 0 ]]; then
+          echo "error: STEP export failed for ${main_kcl} with status ${step_status}" >&2
+        fi
+        if [[ "$gltf_status" -ne 0 ]]; then
+          echo "error: glTF export failed for ${main_kcl} with status ${gltf_status}" >&2
+        fi
+        if [[ "$step_status" -ne 0 ]]; then
+          return "$step_status"
+        fi
+        if [[ "$gltf_status" -ne 0 ]]; then
+          return "$gltf_status"
+        fi
 
         bounding_box_analysis_file="$analysis_file"
         if [[ "$BOUNDING_BOX_OUTPUT_UNIT" != "$CENTER_OF_MASS_OUTPUT_UNIT" ]]; then
@@ -1161,27 +1294,49 @@ spec:
           --camera-padding "$camera_padding" \
           "$main_kcl" \
           "$assembly_dir/snapshot.png"
+      }
+
+      assembly_index=0
+      while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
+        [ -n "$assembly_id" ] || continue
+        assembly_index=$((assembly_index + 1))
+        run_background \
+          "assembly ${assembly_id}" \
+          process_assembly "$assembly_index" "$assembly_id" "$main_kcl" "$metadata_json"
       done < "$state_dir/assemblies.tsv"
+      wait_for_background_jobs
+
+      write_snapshot_view() {
+        local snapshot_input="$1"
+        local snapshot_view_angle="$2"
+        local snapshot_base="$artifact_dir/snapshots/${snapshot_input%.kcl}"
+        local snapshot_slug
+        local snapshot_output
+
+        snapshot_slug="$(snapshot_view_slug "$snapshot_view_angle")"
+        snapshot_output="${snapshot_base}.${snapshot_slug}.png"
+        mkdir -p "$(dirname "$snapshot_output")"
+        run_zoo "${zoo_cmd[@]}" kcl snapshot \
+          --output-format png \
+          --angle "$snapshot_view_angle" \
+          --camera-style "$camera_style" \
+          --camera-padding "$camera_padding" \
+          "$snapshot_input" \
+          "$snapshot_output"
+      }
 
       IFS=',' read -r -a snapshot_view_angles <<< "$snapshot_views"
       while IFS= read -r snapshot_input; do
         [[ -n "$snapshot_input" ]] || continue
-        snapshot_base="$artifact_dir/snapshots/${snapshot_input%.kcl}"
         for snapshot_view_angle in "${snapshot_view_angles[@]}"; do
           snapshot_view_angle="${snapshot_view_angle//[[:space:]]/}"
           [[ -n "$snapshot_view_angle" ]] || continue
-          snapshot_view_slug="$(snapshot_view_slug "$snapshot_view_angle")"
-          snapshot_output="${snapshot_base}.${snapshot_view_slug}.png"
-          mkdir -p "$(dirname "$snapshot_output")"
-          run_zoo "${zoo_cmd[@]}" kcl snapshot \
-            --output-format png \
-            --angle "$snapshot_view_angle" \
-            --camera-style "$camera_style" \
-            --camera-padding "$camera_padding" \
-            "$snapshot_input" \
-            "$snapshot_output"
+          run_background \
+            "snapshot ${snapshot_input} ${snapshot_view_angle}" \
+            write_snapshot_view "$snapshot_input" "$snapshot_view_angle"
         done
       done < "$state_dir/snapshots.list"
+      wait_for_background_jobs
 
       python3 "$python_helper" write-source-files \
         --repo-root "$workspace" \
