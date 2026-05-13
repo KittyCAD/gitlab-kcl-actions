@@ -469,6 +469,43 @@ class KclArtifactsTests(unittest.TestCase):
                 },
             )
 
+    def test_manifest_saves_parameter_overrides_for_upload_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact_dir = root / "kcl-artifacts"
+            artifact_dir.mkdir()
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text(
+                "root\tmain.kcl\tparameters.kcl\tmetadata.json\n",
+                encoding="utf-8",
+            )
+            (artifact_dir / "source").mkdir()
+            (artifact_dir / "source" / "parameters.kcl").write_text(
+                "export thing = 2\n",
+                encoding="utf-8",
+            )
+
+            kcl_artifacts.write_manifest(
+                artifact_dir,
+                assemblies,
+                "v1",
+                "",
+                json.dumps({"thing": 2, "label": "hello world"}),
+            )
+
+            self.assertEqual(
+                json.loads((artifact_dir / "parameters.json").read_text(encoding="utf-8")),
+                {"label": "hello world", "thing": 2},
+            )
+            manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["parameters_json"], "parameters.json")
+            self.assertEqual(manifest["parameters_override_keys"], ["label", "thing"])
+            self.assertEqual(
+                manifest["parameters_overrides"],
+                {"label": "hello world", "thing": 2},
+            )
+            self.assertIn("parameters.json", manifest["artifacts"])
+
 
 if __name__ == "__main__":
     unittest.main()

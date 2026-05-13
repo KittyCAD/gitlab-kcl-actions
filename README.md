@@ -234,6 +234,10 @@ The repository checkout is not edited. Replacement values are JSON literals
 rendered as KCL literals: numbers, strings, booleans, null as `none`, arrays,
 and objects with identifier-shaped keys.
 
+When overrides are supplied, the artifact bundle also includes
+`kcl-artifacts/parameters.json` and records those values in `manifest.json` so
+downstream upload jobs can tag the snapshot with labels like `width=24`.
+
 When there are multiple assemblies, one JSON object is applied across all
 selected `parameters.kcl` files. If `main_kcl_paths` is empty, all assemblies
 are selected. If a key is exported by more than one selected assembly, all
