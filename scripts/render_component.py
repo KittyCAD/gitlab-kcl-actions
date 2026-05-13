@@ -104,14 +104,17 @@ def render_kcl_artifacts() -> str:
       default: python:3.12-slim
       description: "Container image for the KCL artifact job. Override with a Python 3.12 Debian-compatible mirror if your runners cannot pull Docker Hub images."
     snapshot_angle:
-      default: iso
+      default: four-ways
       options:
         - front
         - top
         - right-side
         - four-ways
         - iso
-      description: "Camera angle used for assembly and per-file snapshots."
+      description: "Camera angle used for the assembly-level snapshot.png preview."
+    snapshot_views:
+      default: iso,front,top,right-side
+      description: "Comma-separated camera angles used for per-file snapshot view PNGs."
     camera_style:
       default: ortho
       options:
@@ -152,6 +155,7 @@ def render_kcl_artifacts() -> str:
       $[[ inputs.main_kcl_paths ]]
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
+    KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
   before_script:

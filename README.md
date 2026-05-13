@@ -330,11 +330,23 @@ kcl-artifacts/
       bounding-box.json
       snapshot.png
   snapshots/
-    main.png
-    part.png
+    main.isometric.png
+    main.front.png
+    main.top.png
+    main.right.png
+    part.isometric.png
+    part.front.png
+    part.top.png
+    part.right.png
     assembly-2/
-      main.png
-      part.png
+      main.isometric.png
+      main.front.png
+      main.top.png
+      main.right.png
+      part.isometric.png
+      part.front.png
+      part.top.png
+      part.right.png
   source/
     main.kcl
     metadata.json
@@ -348,19 +360,25 @@ kcl-artifacts/
   manifest.json
 ```
 
-Each `main.kcl` gets STEP, glTF, physics analysis, bounding box, and assembly
-snapshot artifacts under `kcl-artifacts/assemblies/<assembly-id>/`. The root
-entrypoint uses `root` as its assembly ID. Nested entrypoints use their
-directory path relative to the repo, so `assembly-2/main.kcl` writes under
-`assemblies/assembly-2/`.
+Each `main.kcl` gets STEP, glTF, physics analysis, bounding box, and a
+four-ways assembly snapshot preview under
+`kcl-artifacts/assemblies/<assembly-id>/`. The root entrypoint uses `root` as
+its assembly ID. Nested entrypoints use their directory path relative to the
+repo, so `assembly-2/main.kcl` writes under `assemblies/assembly-2/`.
 
 Per-file snapshots are generated for every `.kcl` file except `parameters.kcl`,
-preserving the source path under `kcl-artifacts/snapshots/`. The source `.kcl`
-files used for those snapshots are copied under `kcl-artifacts/source/` with the
-same relative paths. Each selected assembly's sibling `parameters.kcl` and
-`metadata.json` are copied there too. Assembly artifacts, source copies, and
-per-file snapshots are limited to the selected assembly directories, whether
-they were selected by `main_kcl_paths` or by changed-file detection.
+preserving the source path under `kcl-artifacts/snapshots/` and adding a view
+suffix. The default scheme is `<source-without-.kcl>.<view>.png`, with
+`isometric`, `front`, `top`, and `right` views. The source `.kcl` files used for
+those snapshots are copied under `kcl-artifacts/source/` with the same relative
+paths. Each selected assembly's sibling `parameters.kcl` and `metadata.json` are
+copied there too. Assembly artifacts, source copies, and per-file snapshots are
+limited to the selected assembly directories, whether they were selected by
+`main_kcl_paths` or by changed-file detection.
+
+Override `snapshot_views` with a comma-separated Zoo snapshot angle list to
+change the per-file views. The built-in default maps `iso` to `isometric` and
+`right-side` to `right` in filenames.
 
 The workflow stops after producing artifacts. Uploading those artifacts is out
 of scope and should happen in a later GitLab job.

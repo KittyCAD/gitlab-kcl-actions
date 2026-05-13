@@ -25,14 +25,17 @@ spec:
       default: python:3.12-slim
       description: "Container image for the KCL artifact job. Override with a Python 3.12 Debian-compatible mirror if your runners cannot pull Docker Hub images."
     snapshot_angle:
-      default: iso
+      default: four-ways
       options:
         - front
         - top
         - right-side
         - four-ways
         - iso
-      description: "Camera angle used for assembly and per-file snapshots."
+      description: "Camera angle used for the assembly-level snapshot.png preview."
+    snapshot_views:
+      default: iso,front,top,right-side
+      description: "Comma-separated camera angles used for per-file snapshot view PNGs."
     camera_style:
       default: ortho
       options:
@@ -164,6 +167,7 @@ spec:
       $[[ inputs.main_kcl_paths ]]
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
+    KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
   before_script:
@@ -888,7 +892,11 @@ spec:
         main_kcl_paths="[]"
       fi
       host="${KCL_ZOO_HOST:-}"
-      snapshot_angle="${KCL_SNAPSHOT_ANGLE:-iso}"
+      snapshot_angle="${KCL_SNAPSHOT_ANGLE:-four-ways}"
+      snapshot_views="${KCL_SNAPSHOT_VIEWS:-iso,front,top,right-side}"
+      if [[ -z "$snapshot_views" ]]; then
+        snapshot_views="iso,front,top,right-side"
+      fi
       camera_style="${KCL_CAMERA_STYLE:-ortho}"
       camera_padding="${KCL_CAMERA_PADDING:-0.1}"
       zoo_attempts="${KCL_ZOO_ATTEMPTS:-3}"
@@ -1041,6 +1049,23 @@ spec:
         done
       }
 
+      snapshot_view_slug() {
+        case "$1" in
+          iso)
+            printf '%s\n' "isometric"
+            ;;
+          right-side)
+            printf '%s\n' "right"
+            ;;
+          four-ways)
+            printf '%s\n' "four-ways"
+            ;;
+          *)
+            printf '%s\n' "$1" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//;s/-$//'
+            ;;
+        esac
+      }
+
       export_one() {
         local format="$1"
         local extension="$2"
@@ -1138,17 +1163,24 @@ spec:
           "$assembly_dir/snapshot.png"
       done < "$state_dir/assemblies.tsv"
 
+      IFS=',' read -r -a snapshot_view_angles <<< "$snapshot_views"
       while IFS= read -r snapshot_input; do
         [[ -n "$snapshot_input" ]] || continue
-        snapshot_output="$artifact_dir/snapshots/${snapshot_input%.kcl}.png"
-        mkdir -p "$(dirname "$snapshot_output")"
-        run_zoo "${zoo_cmd[@]}" kcl snapshot \
-          --output-format png \
-          --angle "$snapshot_angle" \
-          --camera-style "$camera_style" \
-          --camera-padding "$camera_padding" \
-          "$snapshot_input" \
-          "$snapshot_output"
+        snapshot_base="$artifact_dir/snapshots/${snapshot_input%.kcl}"
+        for snapshot_view_angle in "${snapshot_view_angles[@]}"; do
+          snapshot_view_angle="${snapshot_view_angle//[[:space:]]/}"
+          [[ -n "$snapshot_view_angle" ]] || continue
+          snapshot_view_slug="$(snapshot_view_slug "$snapshot_view_angle")"
+          snapshot_output="${snapshot_base}.${snapshot_view_slug}.png"
+          mkdir -p "$(dirname "$snapshot_output")"
+          run_zoo "${zoo_cmd[@]}" kcl snapshot \
+            --output-format png \
+            --angle "$snapshot_view_angle" \
+            --camera-style "$camera_style" \
+            --camera-padding "$camera_padding" \
+            "$snapshot_input" \
+            "$snapshot_output"
+        done
       done < "$state_dir/snapshots.list"
 
       python3 "$python_helper" write-source-files \

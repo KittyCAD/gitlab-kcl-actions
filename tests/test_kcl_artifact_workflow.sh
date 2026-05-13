@@ -36,10 +36,12 @@ test -s "$project/kcl-artifacts/assemblies/assembly-2/model.gltf"
 test -s "$project/kcl-artifacts/assemblies/assembly-2/analysis.json"
 test -s "$project/kcl-artifacts/assemblies/assembly-2/bounding-box.json"
 test -s "$project/kcl-artifacts/assemblies/assembly-2/snapshot.png"
-test -s "$project/kcl-artifacts/snapshots/main.png"
-test -s "$project/kcl-artifacts/snapshots/part.png"
-test -s "$project/kcl-artifacts/snapshots/assembly-2/main.png"
-test -s "$project/kcl-artifacts/snapshots/assembly-2/part.png"
+for view in isometric front top right; do
+  test -s "$project/kcl-artifacts/snapshots/main.${view}.png"
+  test -s "$project/kcl-artifacts/snapshots/part.${view}.png"
+  test -s "$project/kcl-artifacts/snapshots/assembly-2/main.${view}.png"
+  test -s "$project/kcl-artifacts/snapshots/assembly-2/part.${view}.png"
+done
 test -s "$project/kcl-artifacts/source/main.kcl"
 test -s "$project/kcl-artifacts/source/metadata.json"
 test -s "$project/kcl-artifacts/source/part.kcl"
@@ -84,10 +86,6 @@ expected = {
     "assemblies/assembly-2/model.gltf",
     "assemblies/assembly-2/model.step",
     "assemblies/assembly-2/snapshot.png",
-    "snapshots/main.png",
-    "snapshots/part.png",
-    "snapshots/assembly-2/main.png",
-    "snapshots/assembly-2/part.png",
     "source/main.kcl",
     "source/metadata.json",
     "source/part.kcl",
@@ -97,6 +95,9 @@ expected = {
     "source/assembly-2/part.kcl",
     "source/assembly-2/parameters.kcl",
 }
+for source in ("main", "part", "assembly-2/main", "assembly-2/part"):
+    for view in ("isometric", "front", "top", "right"):
+        expected.add(f"snapshots/{source}.{view}.png")
 missing = expected - artifacts
 if missing:
     raise SystemExit(f"manifest missing artifacts: {sorted(missing)}")

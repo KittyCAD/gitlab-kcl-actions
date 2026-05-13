@@ -14,7 +14,11 @@ if [[ -z "$main_kcl_paths" ]]; then
   main_kcl_paths="[]"
 fi
 host="${KCL_ZOO_HOST:-}"
-snapshot_angle="${KCL_SNAPSHOT_ANGLE:-iso}"
+snapshot_angle="${KCL_SNAPSHOT_ANGLE:-four-ways}"
+snapshot_views="${KCL_SNAPSHOT_VIEWS:-iso,front,top,right-side}"
+if [[ -z "$snapshot_views" ]]; then
+  snapshot_views="iso,front,top,right-side"
+fi
 camera_style="${KCL_CAMERA_STYLE:-ortho}"
 camera_padding="${KCL_CAMERA_PADDING:-0.1}"
 zoo_attempts="${KCL_ZOO_ATTEMPTS:-3}"
@@ -167,6 +171,23 @@ write_zoo_output() {
   done
 }
 
+snapshot_view_slug() {
+  case "$1" in
+    iso)
+      printf '%s\n' "isometric"
+      ;;
+    right-side)
+      printf '%s\n' "right"
+      ;;
+    four-ways)
+      printf '%s\n' "four-ways"
+      ;;
+    *)
+      printf '%s\n' "$1" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//;s/-$//'
+      ;;
+  esac
+}
+
 export_one() {
   local format="$1"
   local extension="$2"
@@ -264,17 +285,24 @@ while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
     "$assembly_dir/snapshot.png"
 done < "$state_dir/assemblies.tsv"
 
+IFS=',' read -r -a snapshot_view_angles <<< "$snapshot_views"
 while IFS= read -r snapshot_input; do
   [[ -n "$snapshot_input" ]] || continue
-  snapshot_output="$artifact_dir/snapshots/${snapshot_input%.kcl}.png"
-  mkdir -p "$(dirname "$snapshot_output")"
-  run_zoo "${zoo_cmd[@]}" kcl snapshot \
-    --output-format png \
-    --angle "$snapshot_angle" \
-    --camera-style "$camera_style" \
-    --camera-padding "$camera_padding" \
-    "$snapshot_input" \
-    "$snapshot_output"
+  snapshot_base="$artifact_dir/snapshots/${snapshot_input%.kcl}"
+  for snapshot_view_angle in "${snapshot_view_angles[@]}"; do
+    snapshot_view_angle="${snapshot_view_angle//[[:space:]]/}"
+    [[ -n "$snapshot_view_angle" ]] || continue
+    snapshot_view_slug="$(snapshot_view_slug "$snapshot_view_angle")"
+    snapshot_output="${snapshot_base}.${snapshot_view_slug}.png"
+    mkdir -p "$(dirname "$snapshot_output")"
+    run_zoo "${zoo_cmd[@]}" kcl snapshot \
+      --output-format png \
+      --angle "$snapshot_view_angle" \
+      --camera-style "$camera_style" \
+      --camera-padding "$camera_padding" \
+      "$snapshot_input" \
+      "$snapshot_output"
+  done
 done < "$state_dir/snapshots.list"
 
 python3 "$python_helper" write-source-files \
