@@ -447,7 +447,9 @@ include:
 
 `image` must provide Python 3.12.
 
-Run it from a GitLab pipeline schedule by making a schedule-only pipeline config:
+Run it from a GitLab pipeline schedule by making a schedule-only pipeline config.
+This example writes conversion outputs at the repository root and commits
+top-level dataset `output/` directories back to the default branch:
 
 ```yaml
 workflow:
@@ -457,6 +459,7 @@ workflow:
 
 stages:
   - scrape
+  - commit
 
 include:
   - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
@@ -464,11 +467,47 @@ include:
       stage: scrape
       job-name: scrape-dataset-conversions
       host: "https://api.zoo.dev"
+      output_dir: "."
+
+commit-dataset-conversions:
+  stage: commit
+  image: alpine:3
+  needs:
+    - job: scrape-dataset-conversions
+      artifacts: true
+  resource_group: dataset-conversions-commit
+  variables:
+    GIT_DEPTH: "0"
+  before_script:
+    - apk add --no-cache git
+  script:
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - git config user.name "Dataset Conversions Bot"
+    - git config user.email "dataset-conversions-bot@example.com"
+    - git remote set-url origin "$CI_REPOSITORY_URL"
+    - rm -rf .gitlab-kcl-actions
+    - find . -mindepth 2 -maxdepth 2 -type d -name output -print0 > /tmp/dataset-output-dirs
+    - |
+      if [ ! -s /tmp/dataset-output-dirs ]; then
+        echo "No dataset conversion output directories found"
+        exit 0
+      fi
+    - xargs -0 git add -A -- < /tmp/dataset-output-dirs
+    - |
+      if git diff --cached --quiet; then
+        echo "No dataset conversion changes to commit"
+        exit 0
+      fi
+    - git commit -m "chore: update dataset conversions [skip ci]"
+    - git pull --rebase origin "$CI_DEFAULT_BRANCH"
+    - git push -o ci.skip origin "HEAD:$CI_DEFAULT_BRANCH"
 ```
 
 Create the schedule in GitLab's pipeline schedules UI with whatever cron cadence
 you want, and set `ZOO_API_TOKEN` as a protected/masked CI/CD variable. The job
-fails if the token is not present.
+fails if the token is not present. To let the commit job push with
+`CI_REPOSITORY_URL`, enable job-token repository pushes in the project CI/CD
+settings, and make sure the schedule owner can push to the default branch.
 
 ## Local Development
 
