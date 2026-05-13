@@ -508,7 +508,9 @@ Create the schedule in GitLab's pipeline schedules UI with whatever cron cadence
 you want, and set `ZOO_API_TOKEN` as a protected/masked CI/CD variable. The job
 fails if the token is not present. To let the commit job push with
 `CI_REPOSITORY_URL`, enable job-token repository pushes in the project CI/CD
-settings, and make sure the schedule owner can push to the default branch.
+settings, and make sure the schedule owner can push to the default branch. If
+you use a different commit-job image, make sure it includes `git` or install it
+with that image's package manager before running the `git` commands.
 
 ## Local Development
 
