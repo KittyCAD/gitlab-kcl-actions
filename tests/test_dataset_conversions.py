@@ -112,6 +112,24 @@ class DatasetConversionsTests(unittest.TestCase):
             conversion_dir = output_dir / "Demo Dataset" / "output" / "folder" / "model.step"
             self.assertEqual((conversion_dir / "main.kcl").read_text(), "main")
             self.assertEqual((conversion_dir / "0.png").read_bytes(), b"salon-image")
+            self.assertEqual(
+                (conversion_dir / "README.md").read_text(encoding="utf-8"),
+                "\n".join(
+                    [
+                        "# folder/model.step",
+                        "",
+                        "- Conversion ID: `conversion-1`",
+                        "- KCL output: [main.kcl](main.kcl)",
+                        "",
+                        "## Snapshots",
+                        "",
+                        "### Snapshot 0",
+                        "",
+                        "![Snapshot 0](0.png)",
+                    ]
+                )
+                + "\n",
+            )
 
     def test_scrape_without_dataset_id_lists_all_org_datasets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

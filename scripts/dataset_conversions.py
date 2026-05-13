@@ -96,8 +96,8 @@ def write_salon_snapshots(
     conversion_dir: Path,
     conversion_id: str,
     images: list[Any],
-) -> int:
-    written = 0
+) -> list[str]:
+    written: list[str] = []
     for index, image in enumerate(images):
         data = ensure_png_bytes(
             image,
@@ -108,8 +108,42 @@ def write_salon_snapshots(
         path = conversion_dir / f"{index}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        written += 1
+        written.append(path.name)
     return written
+
+
+def write_conversion_readme(
+    conversion_dir: Path,
+    *,
+    conversion_id: str,
+    file_path: str,
+    wrote_output: bool,
+    snapshot_names: list[str],
+) -> None:
+    lines = [
+        f"# {file_path}",
+        "",
+        f"- Conversion ID: `{conversion_id}`",
+    ]
+    if wrote_output:
+        lines.append("- KCL output: [main.kcl](main.kcl)")
+
+    lines.extend(["", "## Snapshots", ""])
+    if snapshot_names:
+        for index, snapshot_name in enumerate(snapshot_names):
+            lines.extend(
+                [
+                    f"### Snapshot {index}",
+                    "",
+                    f"![Snapshot {index}]({snapshot_name})",
+                    "",
+                ]
+            )
+    else:
+        lines.append("No salon snapshot images were returned.")
+
+    conversion_dir.mkdir(parents=True, exist_ok=True)
+    (conversion_dir / "README.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
 def write_conversion_artifacts(
@@ -124,13 +158,21 @@ def write_conversion_artifacts(
 
     output_paths: list[str] = []
     path = conversion_dir / "main.kcl"
-    if write_text_artifact(path, getattr(details, "output", None)):
+    wrote_output = write_text_artifact(path, getattr(details, "output", None))
+    if wrote_output:
         output_paths.append(path.relative_to(output_dir).as_posix())
 
-    snapshot_count = write_salon_snapshots(
+    snapshot_names = write_salon_snapshots(
         conversion_dir,
         conversion_id,
         list(getattr(details, "salon_kcl_snapshot_images", []) or []),
+    )
+    write_conversion_readme(
+        conversion_dir,
+        conversion_id=conversion_id,
+        file_path=file_path,
+        wrote_output=wrote_output,
+        snapshot_names=snapshot_names,
     )
 
     return {
@@ -139,7 +181,7 @@ def write_conversion_artifacts(
         "phase": enum_value(getattr(summary, "phase", "")),
         "status": enum_value(getattr(summary, "status", "")),
         "output_paths": output_paths,
-        "snapshot_count": snapshot_count,
+        "snapshot_count": len(snapshot_names),
         "artifact_dir": conversion_dir.relative_to(output_dir).as_posix(),
     }
 

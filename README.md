@@ -381,6 +381,7 @@ Dataset Name/
       main.kcl
       0.png
       1.png
+      README.md
 ```
 
 Set `output_dir` if you want those files under a specific artifact directory:
