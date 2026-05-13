@@ -175,82 +175,7 @@ assemblies are selected and artifacts need to be generated. If the default
 changed-file detection finds no matching assembly, the job exits before using
 the token.
 
-### `dataset-conversions`
-
-Use this to download successful converted KCL outputs and salon snapshot PNGs
-from every org dataset using the KittyCAD Python SDK:
-
-```yaml
-include:
-  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
-```
-
-By default, the job lists every dataset in the authenticated org and downloads
-successful completed conversions into the current directory:
-
-```text
-Dataset Name/
-  output/
-    path/from/dataset.step/
-      main.kcl
-      0.png
-      1.png
-```
-
-Set `output_dir` if you want those files under a specific artifact directory:
-
-```yaml
-include:
-  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
-    inputs:
-      output_dir: dataset-conversions
-```
-
-Narrow to one dataset if needed:
-
-```yaml
-include:
-  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
-    inputs:
-      dataset_id: "00000000-0000-0000-0000-000000000000"
-```
-
-Override the API host the same way as the other components:
-
-```yaml
-include:
-  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
-    inputs:
-      host: "https://api.example.com"
-```
-
-The component sets `ZOO_HOST` from that input. If `host` is empty, the SDK uses
-its default host or an existing `ZOO_HOST` from the job environment.
-
-Run it from a GitLab pipeline schedule by making a schedule-only pipeline config:
-
-```yaml
-workflow:
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - when: never
-
-stages:
-  - scrape
-
-include:
-  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
-    inputs:
-      stage: scrape
-      job-name: scrape-dataset-conversions
-      host: "https://api.zoo.dev"
-```
-
-Create the schedule in GitLab's pipeline schedules UI with whatever cron cadence
-you want, and set `ZOO_API_TOKEN` as a protected/masked CI/CD variable. The job
-fails if the token is not present.
-
-## Repository Contract
+#### Repository Contract
 
 Consuming repositories must contain:
 
@@ -262,7 +187,7 @@ Consuming repositories must contain:
 Missing `main.kcl`, missing sibling `parameters.kcl`, duplicate assembly IDs,
 and missing or invalid sibling `metadata.json` files are hard failures.
 
-## `parameters.kcl`
+#### `parameters.kcl`
 
 The `parameters_json` input replaces existing exported top-level assignments in
 each discovered sibling `parameters.kcl`. It does not add new parameters and it
@@ -315,7 +240,7 @@ assembly, the workflow fails.
 This matches the multi-file KCL sample style, where `parameters.kcl` exports
 top-level parameters and model files use `import * from "parameters.kcl"`.
 
-## `metadata.json`
+#### `metadata.json`
 
 `metadata.json` lives next to each `main.kcl` and provides the physics arguments
 for that entrypoint's `zoo kcl analyze` and derived bounding-box artifact. A
@@ -340,7 +265,7 @@ All fields are required. `material_density` must be a finite number. The unit
 fields must be non-empty strings. The workflow does not guess density, units,
 or material data.
 
-## Physics JSON
+#### Physics JSON
 
 Each assembly gets `analysis.json` from `zoo kcl analyze --format json`. The
 numeric values depend on the model and the units in that assembly's sibling
@@ -378,7 +303,7 @@ artifact:
 extracted from Zoo analysis JSON so consumers do not have to parse the CLI's
 human table output from `zoo kcl bounding-box`.
 
-## Artifacts
+#### Artifacts
 
 The workflow always writes to `kcl-artifacts/`:
 
@@ -432,6 +357,92 @@ they were selected by `main_kcl_paths` or by changed-file detection.
 
 The workflow stops after producing artifacts. Uploading those artifacts is out
 of scope and should happen in a later GitLab job.
+
+### `dataset-conversions`
+
+Use this to download successful converted KCL outputs and salon snapshot PNGs
+from every org dataset using the KittyCAD Python SDK:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+```
+
+By default, the job lists every dataset in the authenticated org and downloads
+successful completed conversions into the current directory:
+
+```text
+Dataset Name/
+  output/
+    path/from/dataset.step/
+      main.kcl
+      0.png
+      1.png
+```
+
+Set `output_dir` if you want those files under a specific artifact directory:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+    inputs:
+      output_dir: dataset-conversions
+```
+
+Narrow to one dataset if needed:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+    inputs:
+      dataset_id: "00000000-0000-0000-0000-000000000000"
+```
+
+Override the API host the same way as the other components:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+    inputs:
+      host: "https://api.example.com"
+```
+
+The component sets `ZOO_HOST` from that input. If `host` is empty, the SDK uses
+its default host or an existing `ZOO_HOST` from the job environment.
+
+Use a mirrored image when your runners cannot pull Docker Hub directly:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+    inputs:
+      artifacts_image: registry.example.com/mirrors/python:3.12-slim
+```
+
+`artifacts_image` must provide Python 3.12.
+
+Run it from a GitLab pipeline schedule by making a schedule-only pipeline config:
+
+```yaml
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - when: never
+
+stages:
+  - scrape
+
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/dataset-conversions@1.0.0
+    inputs:
+      stage: scrape
+      job-name: scrape-dataset-conversions
+      host: "https://api.zoo.dev"
+```
+
+Create the schedule in GitLab's pipeline schedules UI with whatever cron cadence
+you want, and set `ZOO_API_TOKEN` as a protected/masked CI/CD variable. The job
+fails if the token is not present.
 
 ## Local Development
 
