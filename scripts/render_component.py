@@ -12,11 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 KCL_TARGET = ROOT / "templates" / "kcl-artifacts.yml"
 INSTALL_TARGET = ROOT / "templates" / "install-zoo-cli.yml"
 DATASET_CONVERSIONS_TARGET = ROOT / "templates" / "dataset-conversions.yml"
-SCRIPT_FILES = {
-    "install-zoo-cli.sh": ROOT / "scripts" / "install-zoo-cli.sh",
-    "kcl_artifacts.py": ROOT / "scripts" / "kcl_artifacts.py",
-    "run-kcl-artifacts.sh": ROOT / "scripts" / "run-kcl-artifacts.sh",
-}
 KCL_ARTIFACT_SCRIPT_FILES = {
     "kcl_artifacts.py": ROOT / "scripts" / "kcl_artifacts.py",
     "run-kcl-artifacts.sh": ROOT / "scripts" / "run-kcl-artifacts.sh",

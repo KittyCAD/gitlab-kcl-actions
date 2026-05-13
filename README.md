@@ -1,16 +1,19 @@
 # gitlab-kcl-actions
 
-Reusable GitLab CI/CD component for KCL repositories. It generates CAD exports,
-physics metadata, and render snapshots with the Zoo CLI, then leaves a stable
-artifact tree for a later job to upload to S3, a database, or whatever storage
-system is someone else's problem.
+Reusable GitLab CI/CD components for KCL and Zoo workflows. The templates are
+self-contained because GitLab components only release YAML to consumers, so each
+component writes the helper scripts it needs into the job workspace before
+running.
 
-The component is intentionally self-contained because GitLab components only
-release the YAML template to consumers. The YAML writes the helper scripts into
-the job workspace, installs the Zoo CLI, runs the checks, and publishes
-`kcl-artifacts/`.
+The components currently cover installing the Zoo CLI, generating KCL artifacts
+with the Zoo CLI, and downloading org dataset conversion outputs with the
+KittyCAD Python SDK.
 
 ## Components
+
+All components accept `stage` and `job-name`. Install-only jobs use `image` for
+their container. Jobs that produce output artifacts use `artifacts_image`; if a
+component also has a separate installer job, that installer uses `install_image`.
 
 ### `install-zoo-cli`
 
