@@ -328,6 +328,16 @@ kcl-artifacts/
     assembly-2/
       main.png
       part.png
+  source/
+    main.kcl
+    metadata.json
+    part.kcl
+    parameters.kcl
+    assembly-2/
+      main.kcl
+      metadata.json
+      part.kcl
+      parameters.kcl
   manifest.json
 ```
 
@@ -338,8 +348,11 @@ directory path relative to the repo, so `assembly-2/main.kcl` writes under
 `assemblies/assembly-2/`.
 
 Per-file snapshots are generated for every `.kcl` file except `parameters.kcl`,
-preserving the source path under `kcl-artifacts/snapshots/`. Assembly artifacts
-and per-file snapshots are limited to the selected assembly directories, whether
+preserving the source path under `kcl-artifacts/snapshots/`. The source `.kcl`
+files used for those snapshots are copied under `kcl-artifacts/source/` with the
+same relative paths. Each selected assembly's sibling `parameters.kcl` and
+`metadata.json` are copied there too. Assembly artifacts, source copies, and
+per-file snapshots are limited to the selected assembly directories, whether
 they were selected by `main_kcl_paths` or by changed-file detection.
 
 The workflow stops after producing artifacts. Uploading those artifacts is out

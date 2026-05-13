@@ -280,6 +280,7 @@ done < "$state_dir/snapshots.list"
 python3 "$python_helper" write-source-files \
   --repo-root "$workspace" \
   --snapshots-file "$state_dir/snapshots.list" \
+  --assemblies-file "$state_dir/assemblies.tsv" \
   --output-dir "$artifact_dir/source"
 
 python3 "$python_helper" write-manifest \

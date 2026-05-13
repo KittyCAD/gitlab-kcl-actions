@@ -40,6 +40,14 @@ test -s "$project/kcl-artifacts/snapshots/main.png"
 test -s "$project/kcl-artifacts/snapshots/part.png"
 test -s "$project/kcl-artifacts/snapshots/assembly-2/main.png"
 test -s "$project/kcl-artifacts/snapshots/assembly-2/part.png"
+test -s "$project/kcl-artifacts/source/main.kcl"
+test -s "$project/kcl-artifacts/source/metadata.json"
+test -s "$project/kcl-artifacts/source/part.kcl"
+test -s "$project/kcl-artifacts/source/parameters.kcl"
+test -s "$project/kcl-artifacts/source/assembly-2/main.kcl"
+test -s "$project/kcl-artifacts/source/assembly-2/metadata.json"
+test -s "$project/kcl-artifacts/source/assembly-2/part.kcl"
+test -s "$project/kcl-artifacts/source/assembly-2/parameters.kcl"
 test -s "$project/kcl-artifacts/manifest.json"
 
 grep -q 'export width = 20' "$project/parameters.kcl"
@@ -80,6 +88,14 @@ expected = {
     "snapshots/part.png",
     "snapshots/assembly-2/main.png",
     "snapshots/assembly-2/part.png",
+    "source/main.kcl",
+    "source/metadata.json",
+    "source/part.kcl",
+    "source/parameters.kcl",
+    "source/assembly-2/main.kcl",
+    "source/assembly-2/metadata.json",
+    "source/assembly-2/part.kcl",
+    "source/assembly-2/parameters.kcl",
 }
 missing = expected - artifacts
 if missing:

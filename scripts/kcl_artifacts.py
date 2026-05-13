@@ -535,17 +535,25 @@ def write_bounding_box_json(
 def write_source_files(
     repo_root: Path,
     snapshots_file: Path,
+    assemblies_file: Path,
     output_dir: Path,
 ) -> None:
     repo_root = repo_root.resolve()
     output_dir = output_dir.resolve()
+    relative_paths: set[str] = set()
     for line in snapshots_file.read_text(encoding="utf-8").splitlines():
         if not line:
             continue
         relative_path = normalize_repo_path(line, "source file")
         if not relative_path.endswith(".kcl"):
             continue
+        relative_paths.add(relative_path)
 
+    for assembly in load_assemblies(assemblies_file):
+        relative_paths.add(normalize_repo_path(assembly.parameters_kcl, "source file"))
+        relative_paths.add(normalize_repo_path(assembly.metadata_json, "source file"))
+
+    for relative_path in sorted(relative_paths):
         source = repo_root / relative_path
         if not source.is_file():
             fail(f"source file does not exist: {relative_path}")
@@ -622,6 +630,7 @@ def build_parser() -> argparse.ArgumentParser:
     source_parser = subparsers.add_parser("write-source-files")
     source_parser.add_argument("--repo-root", required=True, type=Path)
     source_parser.add_argument("--snapshots-file", required=True, type=Path)
+    source_parser.add_argument("--assemblies-file", required=True, type=Path)
     source_parser.add_argument("--output-dir", required=True, type=Path)
 
     manifest_parser = subparsers.add_parser("write-manifest")
@@ -667,6 +676,7 @@ def main(argv: list[str] | None = None) -> int:
             write_source_files(
                 args.repo_root,
                 args.snapshots_file,
+                args.assemblies_file,
                 args.output_dir,
             )
         elif args.command == "write-manifest":

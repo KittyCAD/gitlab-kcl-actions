@@ -179,6 +179,7 @@ spec:
       from __future__ import annotations
 
       import argparse
+      import shutil
       from dataclasses import dataclass
       import json
       import math
@@ -706,6 +707,36 @@ spec:
           )
 
 
+      def write_source_files(
+          repo_root: Path,
+          snapshots_file: Path,
+          assemblies_file: Path,
+          output_dir: Path,
+      ) -> None:
+          repo_root = repo_root.resolve()
+          output_dir = output_dir.resolve()
+          relative_paths: set[str] = set()
+          for line in snapshots_file.read_text(encoding="utf-8").splitlines():
+              if not line:
+                  continue
+              relative_path = normalize_repo_path(line, "source file")
+              if not relative_path.endswith(".kcl"):
+                  continue
+              relative_paths.add(relative_path)
+
+          for assembly in load_assemblies(assemblies_file):
+              relative_paths.add(normalize_repo_path(assembly.parameters_kcl, "source file"))
+              relative_paths.add(normalize_repo_path(assembly.metadata_json, "source file"))
+
+          for relative_path in sorted(relative_paths):
+              source = repo_root / relative_path
+              if not source.is_file():
+                  fail(f"source file does not exist: {relative_path}")
+              destination = output_dir / relative_path
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, destination)
+
+
       def write_manifest(
           artifact_dir: Path,
           assemblies_file: Path,
@@ -771,6 +802,12 @@ spec:
           bounding_box_parser.add_argument("--output-file", required=True, type=Path)
           bounding_box_parser.add_argument("--output-unit", required=True)
 
+          source_parser = subparsers.add_parser("write-source-files")
+          source_parser.add_argument("--repo-root", required=True, type=Path)
+          source_parser.add_argument("--snapshots-file", required=True, type=Path)
+          source_parser.add_argument("--assemblies-file", required=True, type=Path)
+          source_parser.add_argument("--output-dir", required=True, type=Path)
+
           manifest_parser = subparsers.add_parser("write-manifest")
           manifest_parser.add_argument("--artifact-dir", required=True, type=Path)
           manifest_parser.add_argument("--assemblies-file", required=True, type=Path)
@@ -809,6 +846,13 @@ spec:
                       args.analysis_file,
                       args.output_file,
                       args.output_unit,
+                  )
+              elif args.command == "write-source-files":
+                  write_source_files(
+                      args.repo_root,
+                      args.snapshots_file,
+                      args.assemblies_file,
+                      args.output_dir,
                   )
               elif args.command == "write-manifest":
                   write_manifest(
@@ -927,7 +971,7 @@ spec:
         --exclude='./kcl-artifacts' \
         -cf - . | tar -C "$workspace" -xf -
       rm -rf "$artifact_dir"
-      mkdir -p "$artifact_dir/assemblies" "$artifact_dir/snapshots"
+      mkdir -p "$artifact_dir/assemblies" "$artifact_dir/snapshots" "$artifact_dir/source"
 
       cd "$workspace"
 
@@ -1109,6 +1153,12 @@ spec:
           "$snapshot_input" \
           "$snapshot_output"
       done < "$state_dir/snapshots.list"
+
+      python3 "$python_helper" write-source-files \
+        --repo-root "$workspace" \
+        --snapshots-file "$state_dir/snapshots.list" \
+        --assemblies-file "$state_dir/assemblies.tsv" \
+        --output-dir "$artifact_dir/source"
 
       python3 "$python_helper" write-manifest \
         --artifact-dir "$artifact_dir" \
