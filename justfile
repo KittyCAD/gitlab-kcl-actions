@@ -1,6 +1,6 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-python_files := `git ls-files 'scripts/*.py' 'tests/*.py' | tr '\n' ' '`
+python_files := `git ls-files 'scripts/*.py' 'tests/*.py' | paste -sd ' ' -`
 
 default: check
 
