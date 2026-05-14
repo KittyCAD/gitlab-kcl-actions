@@ -130,7 +130,10 @@ include:
 ```
 
 `parameters_filename` defaults to `parameters.kcl`. It must be a bare `.kcl`
-filename and is resolved next to every selected entrypoint.
+filename. With that default, non-`main.kcl` entrypoints resolve support files in
+this order: `parameters.kcl`, `{entrypoint_stem}-parameters.kcl`,
+`{entrypoint_stem}_parameters.kcl`. If you set `parameters_filename`, only that
+exact filename is used.
 
 Use `metadata_path` when the metadata file is not the default sibling
 `metadata.json`:
@@ -143,9 +146,12 @@ include:
       metadata_path: config/kcl-metadata.json
 ```
 
-`metadata_path` defaults to `metadata.json`. A bare filename resolves next to
-each selected entrypoint; a repo-relative path points every selected assembly at
-that one metadata JSON file.
+`metadata_path` defaults to `metadata.json`. With that default, non-`main.kcl`
+entrypoints resolve support files in this order: `metadata.json`,
+`{entrypoint_stem}-metadata.json`, `{entrypoint_stem}_metadata.json`. If you set
+`metadata_path` to a bare filename, only that exact sibling filename is used. If
+you set it to a repo-relative path, every selected assembly uses that one shared
+metadata JSON file.
 
 GitLab evaluates `spec:inputs` when the pipeline is created. Per GitLab's
 input limits, the string inside an interpolation block must stay under 1 KB, so
@@ -238,11 +244,14 @@ Consuming repositories must contain:
 - one or more KCL entrypoint files. By default these are named `main.kcl`, but
   the `entrypoint` input can point at a different filename or path.
 - a sibling parameters file next to every entrypoint file. By default this is
-  named `parameters.kcl`, but `parameters_filename` can point at another bare
-  `.kcl` filename.
-- a metadata JSON file. By default this is sibling `metadata.json`, but
-  `metadata_path` can point at another bare filename next to each entrypoint or
-  one shared repo-relative `.json` path.
+  named `parameters.kcl`; for non-`main.kcl` entrypoints the workflow also tries
+  `{entrypoint_stem}-parameters.kcl` and `{entrypoint_stem}_parameters.kcl`.
+  `parameters_filename` can point at another exact bare `.kcl` filename.
+- a metadata JSON file. By default this is sibling `metadata.json`; for
+  non-`main.kcl` entrypoints the workflow also tries
+  `{entrypoint_stem}-metadata.json` and `{entrypoint_stem}_metadata.json`.
+  `metadata_path` can point at another exact bare filename next to each
+  entrypoint or one shared repo-relative `.json` path.
 
 Missing entrypoint files, missing sibling parameters files, duplicate assembly
 IDs, and missing or invalid metadata JSON files are hard failures.
@@ -252,7 +261,8 @@ IDs, and missing or invalid metadata JSON files are hard failures.
 The `parameters_json` input replaces existing exported top-level assignments in
 each discovered sibling parameters file. It does not add new parameters and it
 does not replace non-exported local values. The default filename is
-`parameters.kcl`.
+`parameters.kcl`, with the same non-`main.kcl` entrypoint-stem fallback described
+above.
 
 Example `parameters.kcl`:
 
@@ -311,8 +321,10 @@ The metadata JSON provides the physics arguments for each entrypoint's
 `zoo kcl analyze` and derived bounding-box artifact. By default,
 `metadata.json` lives next to each entrypoint file: root `main.kcl` uses the
 root `metadata.json`, and `assembly-2/main.kcl` uses
-`assembly-2/metadata.json`. Set `metadata_path` to a bare filename to change
-that sibling filename, or to a repo-relative path to make every selected
+`assembly-2/metadata.json`. For non-`main.kcl` entrypoints, the default lookup
+also tries the entrypoint stem variants, for example `assembly-metadata.json`
+and `assembly_metadata.json`. Set `metadata_path` to a bare filename to use that
+exact sibling filename, or to a repo-relative path to make every selected
 assembly use one shared metadata file.
 
 ```json

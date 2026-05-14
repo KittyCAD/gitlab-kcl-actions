@@ -96,10 +96,10 @@ def render_kcl_artifacts() -> str:
       description: "KCL entrypoint filename or repo-relative path to discover when main_kcl_paths is empty."
     parameters_filename:
       default: parameters.kcl
-      description: "Sibling KCL parameters filename next to each selected entrypoint."
+      description: "Sibling KCL parameters filename. The default also tries entrypoint-stem variants for non-main entrypoints."
     metadata_path:
       default: metadata.json
-      description: "Metadata JSON filename resolved next to each entrypoint, or one repo-relative metadata JSON path."
+      description: "Metadata JSON filename, default entrypoint-stem variants, or one repo-relative metadata JSON path."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."

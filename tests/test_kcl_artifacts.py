@@ -195,6 +195,70 @@ class KclArtifactsTests(unittest.TestCase):
                 ],
             )
 
+    def test_project_info_default_support_files_fall_back_to_entrypoint_stem(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "assembly.kcl").write_text("", encoding="utf-8")
+            (root / "assembly-parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "assembly-metadata.json")
+            (root / "part.kcl").write_text("", encoding="utf-8")
+            nested = root / "assembly-2"
+            nested.mkdir()
+            (nested / "assembly.kcl").write_text("", encoding="utf-8")
+            (nested / "assembly_parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(nested / "assembly_metadata.json")
+            (nested / "part.kcl").write_text("", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                entrypoint="assembly.kcl",
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                [
+                    "root\tassembly.kcl\tassembly-parameters.kcl\tassembly-metadata.json",
+                    "assembly-2\tassembly-2/assembly.kcl\tassembly-2/assembly_parameters.kcl\tassembly-2/assembly_metadata.json",
+                ],
+            )
+            self.assertEqual(
+                snapshots_out.read_text(encoding="utf-8").splitlines(),
+                [
+                    "assembly.kcl",
+                    "part.kcl",
+                    "assembly-2/assembly.kcl",
+                    "assembly-2/part.kcl",
+                ],
+            )
+
+            artifact_dir = root / "kcl-artifacts"
+            artifact_dir.mkdir()
+            kcl_artifacts.write_manifest(artifact_dir, assemblies_out, "v1", "", "{}")
+            manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["assemblies"],
+                [
+                    {
+                        "id": "root",
+                        "main_kcl": "assembly.kcl",
+                        "metadata_json": "assembly-metadata.json",
+                        "parameters_kcl": "assembly-parameters.kcl",
+                    },
+                    {
+                        "id": "assembly-2",
+                        "main_kcl": "assembly-2/assembly.kcl",
+                        "metadata_json": "assembly-2/assembly_metadata.json",
+                        "parameters_kcl": "assembly-2/assembly_parameters.kcl",
+                    },
+                ],
+            )
+
     def test_project_info_can_use_custom_parameters_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -236,6 +300,24 @@ class KclArtifactsTests(unittest.TestCase):
                 ],
             )
 
+    def test_project_info_hard_parameter_override_does_not_try_stem_default(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "assembly.kcl").write_text("", encoding="utf-8")
+            (root / "assembly-parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "metadata.json")
+
+            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "inputs.kcl"):
+                kcl_artifacts.write_project_info(
+                    root,
+                    root / "assemblies.tsv",
+                    root / "snapshots.list",
+                    entrypoint="assembly.kcl",
+                    parameters_filename="inputs.kcl",
+                )
+
     def test_project_info_can_use_custom_metadata_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -265,6 +347,24 @@ class KclArtifactsTests(unittest.TestCase):
                     "assembly-2\tassembly-2/assembly.kcl\tassembly-2/parameters.kcl\tassembly-2/mass-properties.json",
                 ],
             )
+
+    def test_project_info_hard_metadata_override_does_not_try_stem_default(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "assembly.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "assembly-metadata.json")
+
+            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "mass-properties.json"):
+                kcl_artifacts.write_project_info(
+                    root,
+                    root / "assemblies.tsv",
+                    root / "snapshots.list",
+                    entrypoint="assembly.kcl",
+                    metadata_path="mass-properties.json",
+                )
 
     def test_project_info_can_use_shared_metadata_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -801,6 +901,17 @@ class KclArtifactsTests(unittest.TestCase):
                 {"label": "hello world", "thing": 2},
             )
             manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["assemblies"],
+                [
+                    {
+                        "id": "root",
+                        "main_kcl": "main.kcl",
+                        "metadata_json": "metadata.json",
+                        "parameters_kcl": "parameters.kcl",
+                    }
+                ],
+            )
             self.assertEqual(manifest["parameters_json"], "parameters.json")
             self.assertEqual(manifest["parameters_override_keys"], ["label", "thing"])
             self.assertEqual(

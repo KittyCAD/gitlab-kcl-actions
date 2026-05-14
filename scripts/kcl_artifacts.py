@@ -37,6 +37,10 @@ ENV_NAMES = {
     "bounding_box_output_unit": "BOUNDING_BOX_OUTPUT_UNIT",
 }
 
+DEFAULT_ENTRYPOINT = "main.kcl"
+DEFAULT_PARAMETERS_FILENAME = "parameters.kcl"
+DEFAULT_METADATA_PATH = "metadata.json"
+
 ASSIGNMENT_RE = re.compile(
     r"^(?P<prefix>export\s+)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<equals>\s*=\s*)"
     r"(?P<value>.*?)(?P<comment>\s*(?://.*)?)$"
@@ -143,15 +147,89 @@ def normalize_metadata_path(raw_path: str) -> str:
     return path.as_posix()
 
 
+def unique_paths(paths: list[Path]) -> list[Path]:
+    output: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        output.append(path)
+    return output
+
+
+def default_sibling_candidates(main_kcl: Path, raw_filename: str) -> list[Path]:
+    candidates = [main_kcl.parent / raw_filename]
+    if main_kcl.name != DEFAULT_ENTRYPOINT:
+        candidates.extend(
+            [
+                main_kcl.parent / f"{main_kcl.stem}-{raw_filename}",
+                main_kcl.parent / f"{main_kcl.stem}_{raw_filename}",
+            ]
+        )
+    return unique_paths(candidates)
+
+
+def first_existing_file(candidates: list[Path]) -> Path | None:
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def candidate_list_message(candidates: list[Path], repo_root: Path) -> str:
+    return ", ".join(relative_posix(candidate, repo_root) for candidate in candidates)
+
+
+def parameters_file_for_entrypoint(
+    repo_root: Path,
+    main_kcl: Path,
+    parameters_filename: str,
+) -> Path:
+    if parameters_filename == DEFAULT_PARAMETERS_FILENAME:
+        candidates = default_sibling_candidates(main_kcl, parameters_filename)
+    else:
+        candidates = [main_kcl.parent / parameters_filename]
+
+    parameters_file = first_existing_file(candidates)
+    if parameters_file is None:
+        fail(
+            f"required parameters file was not found for "
+            f"{relative_posix(main_kcl, repo_root)}; tried "
+            f"{candidate_list_message(candidates, repo_root)}"
+        )
+    return parameters_file
+
+
 def metadata_file_for_entrypoint(
     repo_root: Path,
     main_kcl: Path,
     metadata_path: str,
 ) -> Path:
     path = PurePosixPath(metadata_path)
-    if len(path.parts) == 1:
-        return main_kcl.parent / path.as_posix()
-    return repo_root / path.as_posix()
+    if len(path.parts) > 1:
+        metadata_file = repo_root / path.as_posix()
+        if metadata_file.is_file():
+            return metadata_file
+        fail(f"required metadata file {metadata_path!r} was not found")
+
+    if metadata_path == DEFAULT_METADATA_PATH:
+        candidates = default_sibling_candidates(main_kcl, metadata_path)
+    else:
+        candidates = [main_kcl.parent / metadata_path]
+
+    metadata_file = first_existing_file(candidates)
+    if metadata_file is None:
+        fail(
+            f"required metadata file was not found for "
+            f"{relative_posix(main_kcl, repo_root)}; tried "
+            f"{candidate_list_message(candidates, repo_root)}"
+        )
+    return metadata_file
+
+
+def parameter_paths_for_assemblies(assemblies: list[Assembly], repo_root: Path) -> set[Path]:
+    return {repo_root / assembly.parameters_kcl for assembly in assemblies}
 
 
 def normalize_repo_path(raw_path: str, description: str) -> str:
@@ -346,11 +424,9 @@ def snapshot_files_for_assemblies(
     selected_main_files: list[Path],
     all_main_files: list[Path],
     limit_to_selected: bool,
-    parameters_filename: str,
+    parameter_paths: set[Path],
 ) -> list[Path]:
-    snapshot_files = [
-        path for path in walk_kcl_files(repo_root) if path.name != parameters_filename
-    ]
+    snapshot_files = [path for path in walk_kcl_files(repo_root) if path not in parameter_paths]
     if not limit_to_selected:
         return snapshot_files
 
@@ -367,9 +443,9 @@ def write_project_info(
     snapshots_out: Path,
     main_kcl_paths_json: str = "[]",
     changed_files_file: Path | None = None,
-    entrypoint: str = "main.kcl",
-    parameters_filename: str = "parameters.kcl",
-    metadata_path: str = "metadata.json",
+    entrypoint: str = DEFAULT_ENTRYPOINT,
+    parameters_filename: str = DEFAULT_PARAMETERS_FILENAME,
+    metadata_path: str = DEFAULT_METADATA_PATH,
 ) -> None:
     repo_root = repo_root.resolve()
     entrypoint = normalize_entrypoint_path(entrypoint, "entrypoint")
@@ -413,19 +489,12 @@ def write_project_info(
     assemblies: list[Assembly] = []
     assembly_ids: set[str] = set()
     for main_kcl in main_files:
-        parameters_kcl = main_kcl.parent / parameters_filename
-        if not parameters_kcl.is_file():
-            fail(
-                f"required {parameters_filename} file was not found next to "
-                f"{relative_posix(main_kcl, repo_root)}"
-            )
-
+        parameters_kcl = parameters_file_for_entrypoint(
+            repo_root,
+            main_kcl,
+            parameters_filename,
+        )
         metadata_json = metadata_file_for_entrypoint(repo_root, main_kcl, metadata_path)
-        if not metadata_json.is_file():
-            fail(
-                f"required metadata file {metadata_path!r} was not found for "
-                f"{relative_posix(main_kcl, repo_root)}"
-            )
         validate_metadata(metadata_json)
 
         assembly_id = assembly_id_for_main(main_kcl, repo_root)
@@ -446,7 +515,7 @@ def write_project_info(
         main_files,
         known_main_files,
         limit_to_selected,
-        parameters_filename,
+        parameter_paths_for_assemblies(assemblies, repo_root),
     )
 
     assemblies_out.write_text(
@@ -641,6 +710,7 @@ def write_manifest(
         {
             "id": assembly.id,
             "main_kcl": assembly.main_kcl,
+            "metadata_json": assembly.metadata_json,
             "parameters_kcl": assembly.parameters_kcl,
         }
         for assembly in load_assemblies(assemblies_file)
@@ -684,9 +754,9 @@ def build_parser() -> argparse.ArgumentParser:
     info_parser.add_argument("--snapshots-out", required=True, type=Path)
     info_parser.add_argument("--main-kcl-paths", default="[]")
     info_parser.add_argument("--changed-files-file", type=Path)
-    info_parser.add_argument("--entrypoint", default="main.kcl")
-    info_parser.add_argument("--parameters-filename", default="parameters.kcl")
-    info_parser.add_argument("--metadata-path", default="metadata.json")
+    info_parser.add_argument("--entrypoint", default=DEFAULT_ENTRYPOINT)
+    info_parser.add_argument("--parameters-filename", default=DEFAULT_PARAMETERS_FILENAME)
+    info_parser.add_argument("--metadata-path", default=DEFAULT_METADATA_PATH)
 
     metadata_parser = subparsers.add_parser("metadata-env")
     metadata_parser.add_argument("--metadata-file", required=True, type=Path)
