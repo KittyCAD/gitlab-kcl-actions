@@ -171,7 +171,7 @@ def kcl_literal(value: Any) -> str:
 
 def apply_parameter_values(parameters_file: Path, overrides: dict[str, Any]) -> None:
     if not parameters_file.is_file():
-        fail(f"required parameters.kcl file does not exist: {parameters_file}")
+        fail(f"required parameters file does not exist: {parameters_file}")
 
     if not overrides:
         return
@@ -198,7 +198,7 @@ def apply_parameter_values(parameters_file: Path, overrides: dict[str, Any]) -> 
             output.append(line)
             continue
         if name in seen:
-            fail(f"parameters.kcl defines {name!r} more than once")
+            fail(f"parameters file defines {name!r} more than once")
 
         seen.add(name)
         output.append(
@@ -223,7 +223,7 @@ def apply_parameters(parameters_file: Path, overrides_json: str) -> None:
 
 def exported_parameter_names(parameters_file: Path) -> set[str]:
     if not parameters_file.is_file():
-        fail(f"required parameters.kcl file does not exist: {parameters_file}")
+        fail(f"required parameters file does not exist: {parameters_file}")
 
     names: set[str] = set()
     lines = parameters_file.read_text(encoding="utf-8").splitlines()

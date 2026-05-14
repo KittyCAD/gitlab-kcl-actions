@@ -118,6 +118,20 @@ include:
 file in the repo; a repo-relative path targets that one entrypoint when
 `main_kcl_paths` is empty.
 
+Use `parameters_filename` when each entrypoint's sibling parameter file uses a
+name other than `parameters.kcl`:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
+    inputs:
+      entrypoint: assembly.kcl
+      parameters_filename: inputs.kcl
+```
+
+`parameters_filename` defaults to `parameters.kcl`. It must be a bare `.kcl`
+filename and is resolved next to every selected entrypoint.
+
 GitLab evaluates `spec:inputs` when the pipeline is created. Per GitLab's
 input limits, the string inside an interpolation block must stay under 1 KB, so
 keep `parameters_json` to small sweep-style overrides.
@@ -136,12 +150,17 @@ spec:
       type: string
       default: "[]"
       description: "Optional JSON string or array of KCL entrypoint paths to process. Empty auto-selects changed assemblies."
+    kcl_parameters_filename:
+      type: string
+      default: parameters.kcl
+      description: "Sibling KCL parameters filename next to each selected entrypoint."
 ---
 
 include:
   - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
     inputs:
       main_kcl_paths: '$[[ inputs.kcl_main_kcl_paths ]]'
+      parameters_filename: '$[[ inputs.kcl_parameters_filename ]]'
       parameters_json: '$[[ inputs.kcl_parameters_json ]]'
 ```
 
@@ -198,17 +217,20 @@ Consuming repositories must contain:
 
 - one or more KCL entrypoint files. By default these are named `main.kcl`, but
   the `entrypoint` input can point at a different filename or path.
-- a sibling `parameters.kcl` next to every entrypoint file.
+- a sibling parameters file next to every entrypoint file. By default this is
+  named `parameters.kcl`, but `parameters_filename` can point at another bare
+  `.kcl` filename.
 - a sibling `metadata.json` next to every entrypoint file.
 
-Missing entrypoint files, missing sibling `parameters.kcl`, duplicate assembly
+Missing entrypoint files, missing sibling parameters files, duplicate assembly
 IDs, and missing or invalid sibling `metadata.json` files are hard failures.
 
-#### `parameters.kcl`
+#### Parameters file
 
 The `parameters_json` input replaces existing exported top-level assignments in
-each discovered sibling `parameters.kcl`. It does not add new parameters and it
-does not replace non-exported local values.
+each discovered sibling parameters file. It does not add new parameters and it
+does not replace non-exported local values. The default filename is
+`parameters.kcl`.
 
 Example `parameters.kcl`:
 
@@ -253,10 +275,10 @@ When overrides are supplied, the artifact bundle also includes
 downstream upload jobs can tag the snapshot with labels like `width=24`.
 
 When there are multiple assemblies, one JSON object is applied across all
-selected `parameters.kcl` files. If `main_kcl_paths` is empty, all assemblies
-are selected. If a key is exported by more than one selected assembly, all
-matching files get the new value. If a key is not exported by any selected
-assembly, the workflow fails.
+selected parameters files. If `main_kcl_paths` is empty, all assemblies are
+selected. If a key is exported by more than one selected assembly, all matching
+files get the new value. If a key is not exported by any selected assembly, the
+workflow fails.
 
 This matches the multi-file KCL sample style, where `parameters.kcl` exports
 top-level parameters and model files use `import * from "parameters.kcl"`.
@@ -380,15 +402,16 @@ four-ways assembly snapshot preview under
 its assembly ID. Nested entrypoints use their directory path relative to the
 repo, so `assembly-2/main.kcl` writes under `assemblies/assembly-2/`.
 
-Per-file snapshots are generated for every `.kcl` file except `parameters.kcl`,
-preserving the source path under `kcl-artifacts/snapshots/` and adding a view
-suffix. The default scheme is `<source-without-.kcl>.<view>.png`, with
-`isometric`, `front`, `top`, and `right` views. The source `.kcl` files used for
-those snapshots are copied under `kcl-artifacts/source/` with the same relative
-paths. Each selected assembly's sibling `parameters.kcl` and `metadata.json` are
-copied there too. Assembly artifacts, source copies, and per-file snapshots are
-limited to the selected assembly directories, whether they were selected by
-`main_kcl_paths` or by changed-file detection.
+Per-file snapshots are generated for every `.kcl` file except the configured
+parameters filename, preserving the source path under `kcl-artifacts/snapshots/`
+and adding a view suffix. The default scheme is
+`<source-without-.kcl>.<view>.png`, with `isometric`, `front`, `top`, and
+`right` views. The source `.kcl` files used for those snapshots are copied under
+`kcl-artifacts/source/` with the same relative paths. Each selected assembly's
+sibling parameters file and `metadata.json` are copied there too. Assembly
+artifacts, source copies, and per-file snapshots are limited to the selected
+assembly directories, whether they were selected by `main_kcl_paths` or by
+changed-file detection.
 
 Override `snapshot_views` with a comma-separated Zoo snapshot angle list to
 change the per-file views. The built-in default maps `iso` to `isometric` and
