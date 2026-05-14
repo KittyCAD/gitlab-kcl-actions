@@ -134,7 +134,7 @@ def render_kcl_artifacts() -> str:
       default: "0.1"
       description: "Camera padding passed to zoo kcl snapshot."
     parallelism:
-      default: "4"
+      default: "6"
       description: "Maximum number of concurrent Zoo CLI artifact commands."
     zoo_attempts:
       default: "4"

@@ -462,7 +462,7 @@ change the per-file views. The built-in default maps `iso` to `isometric` and
 
 The artifact job runs assembly generation and per-file snapshot generation with
 bounded concurrency. Override `parallelism` to tune the maximum number of
-concurrent Zoo CLI artifact commands. The default is `4`; set it to `1` to force
+concurrent Zoo CLI artifact commands. The default is `6`; set it to `1` to force
 the old sequential behavior. Each Zoo CLI artifact command retries on failure;
 override `zoo_attempts` and `zoo_retry_delay` to tune the retry count and delay.
 The defaults are `4` attempts with a `10` second delay.

@@ -26,7 +26,7 @@ camera_style="${KCL_CAMERA_STYLE:-ortho}"
 camera_padding="${KCL_CAMERA_PADDING:-0.1}"
 zoo_attempts="${KCL_ZOO_ATTEMPTS:-4}"
 zoo_retry_delay="${KCL_ZOO_RETRY_DELAY:-10}"
-zoo_parallelism="${KCL_ZOO_PARALLELISM:-4}"
+zoo_parallelism="${KCL_ZOO_PARALLELISM:-6}"
 if ! [[ "$zoo_attempts" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: KCL_ZOO_ATTEMPTS must be a positive integer, got ${zoo_attempts}" >&2
   exit 1
@@ -264,6 +264,38 @@ wait_for_background_jobs() {
   done
 }
 
+wait_for_assembly_command() {
+  local pid="$1"
+  local name="$2"
+  local status=0
+
+  set +e
+  wait "$pid"
+  status="$?"
+  set -e
+
+  if [[ "$status" -ne 0 ]]; then
+    echo "error: assembly command failed with status ${status}: ${name}" >&2
+  fi
+  return "$status"
+}
+
+record_assembly_command_status() {
+  local pid="$1"
+  local name="$2"
+  local status=0
+
+  if wait_for_assembly_command "$pid" "$name"; then
+    return 0
+  else
+    status="$?"
+  fi
+
+  if [[ "$failure_status" -eq 0 ]]; then
+    failure_status="$status"
+  fi
+}
+
 snapshot_view_slug() {
   case "$1" in
     iso)
@@ -338,6 +370,13 @@ process_assembly() {
   local bounding_box_analysis_file
   local entrypoint_filename
   local entrypoint_stem
+  local lint_pid
+  local analysis_pid
+  local bounding_box_analysis_pid=""
+  local step_pid
+  local gltf_pid
+  local snapshot_pid
+  local failure_status=0
 
   mkdir -p "$assembly_dir"
 
@@ -352,15 +391,19 @@ process_assembly() {
   # shellcheck disable=SC1090
   source "$metadata_env"
 
-  run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl"
+  run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl" &
+  lint_pid="$!"
 
   analysis_file="$assembly_dir/${entrypoint_stem}-analysis.json"
-  write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT"
+  write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT" &
+  analysis_pid="$!"
 
-  local step_pid
-  local gltf_pid
-  local step_status=0
-  local gltf_status=0
+  bounding_box_analysis_file="$analysis_file"
+  if [[ "$BOUNDING_BOX_OUTPUT_UNIT" != "$CENTER_OF_MASS_OUTPUT_UNIT" ]]; then
+    bounding_box_analysis_file="${state_dir}/bounding-box-analysis-${assembly_index}.json"
+    write_analysis "$bounding_box_analysis_file" "$main_kcl" "$BOUNDING_BOX_OUTPUT_UNIT" &
+    bounding_box_analysis_pid="$!"
+  fi
 
   export_one \
     step \
@@ -378,43 +421,34 @@ process_assembly() {
     "$assembly_dir/${entrypoint_stem}.gltf" &
   gltf_pid="$!"
 
-  set +e
-  wait "$step_pid"
-  step_status="$?"
-  wait "$gltf_pid"
-  gltf_status="$?"
-  set -e
-
-  if [[ "$step_status" -ne 0 ]]; then
-    echo "error: STEP export failed for ${main_kcl} with status ${step_status}" >&2
-  fi
-  if [[ "$gltf_status" -ne 0 ]]; then
-    echo "error: glTF export failed for ${main_kcl} with status ${gltf_status}" >&2
-  fi
-  if [[ "$step_status" -ne 0 ]]; then
-    return "$step_status"
-  fi
-  if [[ "$gltf_status" -ne 0 ]]; then
-    return "$gltf_status"
-  fi
-
-  bounding_box_analysis_file="$analysis_file"
-  if [[ "$BOUNDING_BOX_OUTPUT_UNIT" != "$CENTER_OF_MASS_OUTPUT_UNIT" ]]; then
-    bounding_box_analysis_file="${state_dir}/bounding-box-analysis-${assembly_index}.json"
-    write_analysis "$bounding_box_analysis_file" "$main_kcl" "$BOUNDING_BOX_OUTPUT_UNIT"
-  fi
-  python3 "$python_helper" bounding-box-json \
-    --analysis-file "$bounding_box_analysis_file" \
-    --output-file "$assembly_dir/${entrypoint_stem}-bounding-box.json" \
-    --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
-
   run_zoo "${zoo_cmd[@]}" kcl snapshot \
     --output-format png \
     --angle "$snapshot_angle" \
     --camera-style "$camera_style" \
     --camera-padding "$camera_padding" \
     "$main_kcl" \
-    "$assembly_dir/${entrypoint_stem}-snapshot.png"
+    "$assembly_dir/${entrypoint_stem}-snapshot.png" &
+  snapshot_pid="$!"
+
+  record_assembly_command_status "$lint_pid" "lint ${main_kcl}"
+  record_assembly_command_status "$analysis_pid" "analysis ${main_kcl}"
+  if [[ -n "$bounding_box_analysis_pid" ]]; then
+    record_assembly_command_status \
+      "$bounding_box_analysis_pid" \
+      "bounding-box analysis ${main_kcl}"
+  fi
+  record_assembly_command_status "$step_pid" "STEP export ${main_kcl}"
+  record_assembly_command_status "$gltf_pid" "glTF export ${main_kcl}"
+  record_assembly_command_status "$snapshot_pid" "snapshot ${main_kcl}"
+
+  if [[ "$failure_status" -ne 0 ]]; then
+    return "$failure_status"
+  fi
+
+  python3 "$python_helper" bounding-box-json \
+    --analysis-file "$bounding_box_analysis_file" \
+    --output-file "$assembly_dir/${entrypoint_stem}-bounding-box.json" \
+    --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
 }
 
 assembly_index=0
