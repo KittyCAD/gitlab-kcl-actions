@@ -334,8 +334,13 @@ process_assembly() {
   local metadata_env
   local analysis_file
   local bounding_box_analysis_file
+  local entrypoint_filename
+  local entrypoint_stem
 
   mkdir -p "$assembly_dir"
+
+  entrypoint_filename="${main_kcl##*/}"
+  entrypoint_stem="${entrypoint_filename%.kcl}"
 
   metadata_env="${state_dir}/metadata-${assembly_index}.env"
   python3 "$python_helper" metadata-env \
@@ -347,7 +352,7 @@ process_assembly() {
 
   run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl"
 
-  analysis_file="$assembly_dir/analysis.json"
+  analysis_file="$assembly_dir/${entrypoint_stem}-analysis.json"
   write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT"
 
   local step_pid
@@ -360,7 +365,7 @@ process_assembly() {
     step \
     "$main_kcl" \
     "$state_dir/export-step-${assembly_index}" \
-    "$assembly_dir/model.step" &
+    "$assembly_dir/${entrypoint_stem}.step" &
   step_pid="$!"
 
   export_one \
@@ -368,7 +373,7 @@ process_assembly() {
     gltf \
     "$main_kcl" \
     "$state_dir/export-gltf-${assembly_index}" \
-    "$assembly_dir/model.gltf" &
+    "$assembly_dir/${entrypoint_stem}.gltf" &
   gltf_pid="$!"
 
   set +e
@@ -398,7 +403,7 @@ process_assembly() {
   fi
   python3 "$python_helper" bounding-box-json \
     --analysis-file "$bounding_box_analysis_file" \
-    --output-file "$assembly_dir/bounding-box.json" \
+    --output-file "$assembly_dir/${entrypoint_stem}-bounding-box.json" \
     --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
 
   run_zoo "${zoo_cmd[@]}" kcl snapshot \
@@ -407,7 +412,7 @@ process_assembly() {
     --camera-style "$camera_style" \
     --camera-padding "$camera_padding" \
     "$main_kcl" \
-    "$assembly_dir/snapshot.png"
+    "$assembly_dir/${entrypoint_stem}-snapshot.png"
 }
 
 assembly_index=0

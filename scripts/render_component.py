@@ -117,7 +117,7 @@ def render_kcl_artifacts() -> str:
         - right-side
         - four-ways
         - iso
-      description: "Camera angle used for the assembly-level snapshot.png preview."
+      description: "Camera angle used for the assembly-level entrypoint snapshot preview."
     snapshot_views:
       default: iso,front,top,right-side
       description: "Comma-separated camera angles used for per-file snapshot view PNGs."

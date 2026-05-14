@@ -310,9 +310,10 @@ or material data.
 
 #### Physics JSON
 
-Each assembly gets `analysis.json` from `zoo kcl analyze --format json`. The
-numeric values depend on the model and the units in that assembly's sibling
-`metadata.json`; the shape looks like:
+Each assembly gets `<entrypoint>-analysis.json` from
+`zoo kcl analyze --format json`, where `<entrypoint>` is the selected entrypoint
+filename without `.kcl`. The numeric values depend on the model and the units
+in that assembly's sibling `metadata.json`; the shape looks like:
 
 ```json
 {
@@ -331,8 +332,8 @@ numeric values depend on the model and the units in that assembly's sibling
 }
 ```
 
-The workflow also writes `bounding-box.json` as a smaller machine-friendly
-artifact:
+The workflow also writes `<entrypoint>-bounding-box.json` as a smaller
+machine-friendly artifact:
 
 ```json
 {
@@ -342,9 +343,10 @@ artifact:
 }
 ```
 
-`analysis.json` is the raw Zoo CLI analysis JSON. `bounding-box.json` is
-extracted from Zoo analysis JSON so consumers do not have to parse the CLI's
-human table output from `zoo kcl bounding-box`.
+`<entrypoint>-analysis.json` is the raw Zoo CLI analysis JSON.
+`<entrypoint>-bounding-box.json` is extracted from Zoo analysis JSON so
+consumers do not have to parse the CLI's human table output from
+`zoo kcl bounding-box`.
 
 #### Artifacts
 
@@ -354,17 +356,17 @@ The workflow always writes to `kcl-artifacts/`:
 kcl-artifacts/
   assemblies/
     root/
-      model.step
-      model.gltf
-      analysis.json
-      bounding-box.json
-      snapshot.png
+      main.step
+      main.gltf
+      main-analysis.json
+      main-bounding-box.json
+      main-snapshot.png
     assembly-2/
-      model.step
-      model.gltf
-      analysis.json
-      bounding-box.json
-      snapshot.png
+      main.step
+      main.gltf
+      main-analysis.json
+      main-bounding-box.json
+      main-snapshot.png
   snapshots/
     main.isometric.png
     main.front.png
@@ -401,6 +403,11 @@ four-ways assembly snapshot preview under
 `kcl-artifacts/assemblies/<assembly-id>/`. The root entrypoint uses `root` as
 its assembly ID. Nested entrypoints use their directory path relative to the
 repo, so `assembly-2/main.kcl` writes under `assemblies/assembly-2/`.
+Assembly-level artifact names use the entrypoint filename without `.kcl`: for
+`main.kcl`, the files are `main.step`, `main.gltf`, `main-analysis.json`,
+`main-bounding-box.json`, and `main-snapshot.png`; for `assembly.kcl`, they are
+`assembly.step`, `assembly.gltf`, `assembly-analysis.json`,
+`assembly-bounding-box.json`, and `assembly-snapshot.png`.
 
 Per-file snapshots are generated for every `.kcl` file except the configured
 parameters filename, preserving the source path under `kcl-artifacts/snapshots/`

@@ -38,7 +38,7 @@ spec:
         - right-side
         - four-ways
         - iso
-      description: "Camera angle used for the assembly-level snapshot.png preview."
+      description: "Camera angle used for the assembly-level entrypoint snapshot preview."
     snapshot_views:
       default: iso,front,top,right-side
       description: "Comma-separated camera angles used for per-file snapshot view PNGs."
@@ -1267,8 +1267,13 @@ spec:
         local metadata_env
         local analysis_file
         local bounding_box_analysis_file
+        local entrypoint_filename
+        local entrypoint_stem
 
         mkdir -p "$assembly_dir"
+
+        entrypoint_filename="${main_kcl##*/}"
+        entrypoint_stem="${entrypoint_filename%.kcl}"
 
         metadata_env="${state_dir}/metadata-${assembly_index}.env"
         python3 "$python_helper" metadata-env \
@@ -1280,7 +1285,7 @@ spec:
 
         run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl"
 
-        analysis_file="$assembly_dir/analysis.json"
+        analysis_file="$assembly_dir/${entrypoint_stem}-analysis.json"
         write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT"
 
         local step_pid
@@ -1293,7 +1298,7 @@ spec:
           step \
           "$main_kcl" \
           "$state_dir/export-step-${assembly_index}" \
-          "$assembly_dir/model.step" &
+          "$assembly_dir/${entrypoint_stem}.step" &
         step_pid="$!"
 
         export_one \
@@ -1301,7 +1306,7 @@ spec:
           gltf \
           "$main_kcl" \
           "$state_dir/export-gltf-${assembly_index}" \
-          "$assembly_dir/model.gltf" &
+          "$assembly_dir/${entrypoint_stem}.gltf" &
         gltf_pid="$!"
 
         set +e
@@ -1331,7 +1336,7 @@ spec:
         fi
         python3 "$python_helper" bounding-box-json \
           --analysis-file "$bounding_box_analysis_file" \
-          --output-file "$assembly_dir/bounding-box.json" \
+          --output-file "$assembly_dir/${entrypoint_stem}-bounding-box.json" \
           --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
 
         run_zoo "${zoo_cmd[@]}" kcl snapshot \
@@ -1340,7 +1345,7 @@ spec:
           --camera-style "$camera_style" \
           --camera-padding "$camera_padding" \
           "$main_kcl" \
-          "$assembly_dir/snapshot.png"
+          "$assembly_dir/${entrypoint_stem}-snapshot.png"
       }
 
       assembly_index=0

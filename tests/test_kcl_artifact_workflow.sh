@@ -26,16 +26,16 @@ cp -R "$repo_root/tests/fixtures/basic/." "$project/"
     "$repo_root/scripts/run-kcl-artifacts.sh"
 )
 
-test -s "$project/kcl-artifacts/assemblies/root/model.step"
-test -s "$project/kcl-artifacts/assemblies/root/model.gltf"
-test -s "$project/kcl-artifacts/assemblies/root/analysis.json"
-test -s "$project/kcl-artifacts/assemblies/root/bounding-box.json"
-test -s "$project/kcl-artifacts/assemblies/root/snapshot.png"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/model.step"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/model.gltf"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/analysis.json"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/bounding-box.json"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/snapshot.png"
+test -s "$project/kcl-artifacts/assemblies/root/main.step"
+test -s "$project/kcl-artifacts/assemblies/root/main.gltf"
+test -s "$project/kcl-artifacts/assemblies/root/main-analysis.json"
+test -s "$project/kcl-artifacts/assemblies/root/main-bounding-box.json"
+test -s "$project/kcl-artifacts/assemblies/root/main-snapshot.png"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/main.step"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/main.gltf"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/main-analysis.json"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/main-bounding-box.json"
+test -s "$project/kcl-artifacts/assemblies/assembly-2/main-snapshot.png"
 for view in isometric front top right; do
   test -s "$project/kcl-artifacts/snapshots/main.${view}.png"
   test -s "$project/kcl-artifacts/snapshots/part.${view}.png"
@@ -76,16 +76,16 @@ assert manifest["assemblies"] == [
 ]
 artifacts = set(manifest["artifacts"])
 expected = {
-    "assemblies/root/analysis.json",
-    "assemblies/root/bounding-box.json",
-    "assemblies/root/model.gltf",
-    "assemblies/root/model.step",
-    "assemblies/root/snapshot.png",
-    "assemblies/assembly-2/analysis.json",
-    "assemblies/assembly-2/bounding-box.json",
-    "assemblies/assembly-2/model.gltf",
-    "assemblies/assembly-2/model.step",
-    "assemblies/assembly-2/snapshot.png",
+    "assemblies/root/main-analysis.json",
+    "assemblies/root/main-bounding-box.json",
+    "assemblies/root/main.gltf",
+    "assemblies/root/main.step",
+    "assemblies/root/main-snapshot.png",
+    "assemblies/assembly-2/main-analysis.json",
+    "assemblies/assembly-2/main-bounding-box.json",
+    "assemblies/assembly-2/main.gltf",
+    "assemblies/assembly-2/main.step",
+    "assemblies/assembly-2/main-snapshot.png",
     "source/main.kcl",
     "source/metadata.json",
     "source/part.kcl",
@@ -104,7 +104,7 @@ if missing:
 
 for assembly, bounding_box_unit in (("root", "mm"), ("assembly-2", "cm")):
     analysis = json.loads(
-        (artifact_root / "assemblies" / assembly / "analysis.json").read_text(
+        (artifact_root / "assemblies" / assembly / "main-analysis.json").read_text(
             encoding="utf-8"
         )
     )
@@ -116,7 +116,7 @@ for assembly, bounding_box_unit in (("root", "mm"), ("assembly-2", "cm")):
     assert sorted(analysis["bounding_box"]) == ["center", "dimensions"]
 
     bounding_box = json.loads(
-        (artifact_root / "assemblies" / assembly / "bounding-box.json").read_text(
+        (artifact_root / "assemblies" / assembly / "main-bounding-box.json").read_text(
             encoding="utf-8"
         )
     )
