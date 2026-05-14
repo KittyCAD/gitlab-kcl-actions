@@ -126,10 +126,7 @@ def normalize_parameters_filename(raw_filename: str) -> str:
     if raw_filename == "" or path.is_absolute() or len(path.parts) != 1:
         fail(f"parameters_filename must be a relative .kcl filename: {raw_filename!r}")
     if any(part in {"", ".", ".."} for part in path.parts):
-        fail(
-            "parameters_filename must not contain empty, '.', or '..' parts: "
-            f"{raw_filename!r}"
-        )
+        fail(f"parameters_filename must not contain empty, '.', or '..' parts: {raw_filename!r}")
     if path.suffix != ".kcl":
         fail(f"parameters_filename must point to a .kcl file: {raw_filename!r}")
     return path.as_posix()
@@ -322,7 +319,9 @@ def snapshot_files_for_assemblies(
     limit_to_selected: bool,
     parameters_filename: str,
 ) -> list[Path]:
-    snapshot_files = [path for path in walk_kcl_files(repo_root) if path.name != parameters_filename]
+    snapshot_files = [
+        path for path in walk_kcl_files(repo_root) if path.name != parameters_filename
+    ]
     if not limit_to_selected:
         return snapshot_files
 
