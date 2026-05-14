@@ -97,6 +97,9 @@ def render_kcl_artifacts() -> str:
     parameters_filename:
       default: parameters.kcl
       description: "Sibling KCL parameters filename next to each selected entrypoint."
+    metadata_path:
+      default: metadata.json
+      description: "Metadata JSON filename resolved next to each entrypoint, or one repo-relative metadata JSON path."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."
@@ -170,6 +173,7 @@ def render_kcl_artifacts() -> str:
       $[[ inputs.main_kcl_paths ]]
     KCL_ENTRYPOINT: '$[[ inputs.entrypoint ]]'
     KCL_PARAMETERS_FILENAME: '$[[ inputs.parameters_filename ]]'
+    KCL_METADATA_PATH: '$[[ inputs.metadata_path ]]'
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
     KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'

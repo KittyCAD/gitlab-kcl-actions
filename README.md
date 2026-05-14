@@ -132,6 +132,21 @@ include:
 `parameters_filename` defaults to `parameters.kcl`. It must be a bare `.kcl`
 filename and is resolved next to every selected entrypoint.
 
+Use `metadata_path` when the metadata file is not the default sibling
+`metadata.json`:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
+    inputs:
+      entrypoint: assembly.kcl
+      metadata_path: config/kcl-metadata.json
+```
+
+`metadata_path` defaults to `metadata.json`. A bare filename resolves next to
+each selected entrypoint; a repo-relative path points every selected assembly at
+that one metadata JSON file.
+
 GitLab evaluates `spec:inputs` when the pipeline is created. Per GitLab's
 input limits, the string inside an interpolation block must stay under 1 KB, so
 keep `parameters_json` to small sweep-style overrides.
@@ -154,6 +169,10 @@ spec:
       type: string
       default: parameters.kcl
       description: "Sibling KCL parameters filename next to each selected entrypoint."
+    kcl_metadata_path:
+      type: string
+      default: metadata.json
+      description: "Metadata JSON filename next to each entrypoint, or one repo-relative metadata JSON path."
 ---
 
 include:
@@ -161,6 +180,7 @@ include:
     inputs:
       main_kcl_paths: '$[[ inputs.kcl_main_kcl_paths ]]'
       parameters_filename: '$[[ inputs.kcl_parameters_filename ]]'
+      metadata_path: '$[[ inputs.kcl_metadata_path ]]'
       parameters_json: '$[[ inputs.kcl_parameters_json ]]'
 ```
 
@@ -220,10 +240,12 @@ Consuming repositories must contain:
 - a sibling parameters file next to every entrypoint file. By default this is
   named `parameters.kcl`, but `parameters_filename` can point at another bare
   `.kcl` filename.
-- a sibling `metadata.json` next to every entrypoint file.
+- a metadata JSON file. By default this is sibling `metadata.json`, but
+  `metadata_path` can point at another bare filename next to each entrypoint or
+  one shared repo-relative `.json` path.
 
 Missing entrypoint files, missing sibling parameters files, duplicate assembly
-IDs, and missing or invalid sibling `metadata.json` files are hard failures.
+IDs, and missing or invalid metadata JSON files are hard failures.
 
 #### Parameters file
 
@@ -283,13 +305,15 @@ workflow fails.
 This matches the multi-file KCL sample style, where `parameters.kcl` exports
 top-level parameters and model files use `import * from "parameters.kcl"`.
 
-#### `metadata.json`
+#### Metadata JSON
 
-`metadata.json` lives next to each entrypoint file and provides the physics arguments
-for that entrypoint's `zoo kcl analyze` and derived bounding-box artifact. A
-root `main.kcl` uses the root `metadata.json`; `assembly-2/main.kcl` uses
-`assembly-2/metadata.json`. The workflow does not fall back from a nested
-assembly to the root metadata file.
+The metadata JSON provides the physics arguments for each entrypoint's
+`zoo kcl analyze` and derived bounding-box artifact. By default,
+`metadata.json` lives next to each entrypoint file: root `main.kcl` uses the
+root `metadata.json`, and `assembly-2/main.kcl` uses
+`assembly-2/metadata.json`. Set `metadata_path` to a bare filename to change
+that sibling filename, or to a repo-relative path to make every selected
+assembly use one shared metadata file.
 
 ```json
 {
@@ -415,10 +439,10 @@ and adding a view suffix. The default scheme is
 `<source-without-.kcl>.<view>.png`, with `isometric`, `front`, `top`, and
 `right` views. The source `.kcl` files used for those snapshots are copied under
 `kcl-artifacts/source/` with the same relative paths. Each selected assembly's
-sibling parameters file and `metadata.json` are copied there too. Assembly
-artifacts, source copies, and per-file snapshots are limited to the selected
-assembly directories, whether they were selected by `main_kcl_paths` or by
-changed-file detection.
+sibling parameters file and configured metadata JSON file are copied there too.
+Assembly artifacts, source copies, and per-file snapshots are limited to the
+selected assembly directories, whether they were selected by `main_kcl_paths` or
+by changed-file detection.
 
 Override `snapshot_views` with a comma-separated Zoo snapshot angle list to
 change the per-file views. The built-in default maps `iso` to `isometric` and

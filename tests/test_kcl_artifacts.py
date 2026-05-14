@@ -236,6 +236,67 @@ class KclArtifactsTests(unittest.TestCase):
                 ],
             )
 
+    def test_project_info_can_use_custom_metadata_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "assembly.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "mass-properties.json")
+            nested = root / "assembly-2"
+            nested.mkdir()
+            (nested / "assembly.kcl").write_text("", encoding="utf-8")
+            (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(nested / "mass-properties.json")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                entrypoint="assembly.kcl",
+                metadata_path="mass-properties.json",
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                [
+                    "root\tassembly.kcl\tparameters.kcl\tmass-properties.json",
+                    "assembly-2\tassembly-2/assembly.kcl\tassembly-2/parameters.kcl\tassembly-2/mass-properties.json",
+                ],
+            )
+
+    def test_project_info_can_use_shared_metadata_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "config"
+            config.mkdir()
+            write_metadata(config / "kcl-metadata.json")
+            (root / "assembly.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
+            nested = root / "assembly-2"
+            nested.mkdir()
+            (nested / "assembly.kcl").write_text("", encoding="utf-8")
+            (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                entrypoint="assembly.kcl",
+                metadata_path="config/kcl-metadata.json",
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                [
+                    "root\tassembly.kcl\tparameters.kcl\tconfig/kcl-metadata.json",
+                    "assembly-2\tassembly-2/assembly.kcl\tassembly-2/parameters.kcl\tconfig/kcl-metadata.json",
+                ],
+            )
+
     def test_project_info_requires_parameters_next_to_each_main_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -506,6 +567,40 @@ class KclArtifactsTests(unittest.TestCase):
                 ["assembly-2/assembly.kcl"],
             )
 
+    def test_project_info_selects_all_assemblies_when_shared_metadata_path_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "config"
+            config.mkdir()
+            write_metadata(config / "kcl-metadata.json")
+            (root / "assembly.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
+            nested = root / "assembly-2"
+            nested.mkdir()
+            (nested / "assembly.kcl").write_text("", encoding="utf-8")
+            (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            changed_files = root / "changed-files.list"
+            changed_files.write_text("config/kcl-metadata.json\n", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                changed_files_file=changed_files,
+                entrypoint="assembly.kcl",
+                metadata_path="config/kcl-metadata.json",
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                [
+                    "root\tassembly.kcl\tparameters.kcl\tconfig/kcl-metadata.json",
+                    "assembly-2\tassembly-2/assembly.kcl\tassembly-2/parameters.kcl\tconfig/kcl-metadata.json",
+                ],
+            )
+
     def test_project_info_rejects_missing_selected_main_kcl_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -533,6 +628,21 @@ class KclArtifactsTests(unittest.TestCase):
                     root / "assemblies.tsv",
                     root / "snapshots.list",
                     parameters_filename="config/parameters.kcl",
+                )
+
+    def test_project_info_rejects_non_json_metadata_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "main.kcl").write_text("", encoding="utf-8")
+            (root / "parameters.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "metadata.json")
+
+            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "metadata_path"):
+                kcl_artifacts.write_project_info(
+                    root,
+                    root / "assemblies.tsv",
+                    root / "snapshots.list",
+                    metadata_path="config/metadata.kcl",
                 )
 
     def test_project_parameters_update_each_matching_parameters_file(self) -> None:

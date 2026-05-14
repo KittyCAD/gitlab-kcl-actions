@@ -132,6 +132,28 @@ def normalize_parameters_filename(raw_filename: str) -> str:
     return path.as_posix()
 
 
+def normalize_metadata_path(raw_path: str) -> str:
+    path = PurePosixPath(raw_path)
+    if raw_path == "" or path.is_absolute():
+        fail(f"metadata_path must be relative: {raw_path!r}")
+    if any(part in {"", ".", ".."} for part in path.parts):
+        fail(f"metadata_path must not contain empty, '.', or '..' parts: {raw_path!r}")
+    if path.suffix != ".json":
+        fail(f"metadata_path must point to a .json file: {raw_path!r}")
+    return path.as_posix()
+
+
+def metadata_file_for_entrypoint(
+    repo_root: Path,
+    main_kcl: Path,
+    metadata_path: str,
+) -> Path:
+    path = PurePosixPath(metadata_path)
+    if len(path.parts) == 1:
+        return main_kcl.parent / path.as_posix()
+    return repo_root / path.as_posix()
+
+
 def normalize_repo_path(raw_path: str, description: str) -> str:
     path = PurePosixPath(raw_path)
     if raw_path == "" or path.is_absolute():
@@ -302,13 +324,20 @@ def main_files_for_changed_paths(
     repo_root: Path,
     all_main_files: list[Path],
     changed_paths: list[str],
+    shared_dependency_paths: set[str],
 ) -> list[Path]:
     assembly_dirs = {path.parent for path in all_main_files}
     selected_dirs: set[Path] = set()
+    selected_all = False
     for relative_path in changed_paths:
+        if relative_path in shared_dependency_paths:
+            selected_all = True
+            continue
         owner = owning_assembly_dir(repo_root / relative_path, assembly_dirs)
         if owner is not None:
             selected_dirs.add(owner)
+    if selected_all:
+        return all_main_files
     return [main_kcl for main_kcl in all_main_files if main_kcl.parent in selected_dirs]
 
 
@@ -340,10 +369,12 @@ def write_project_info(
     changed_files_file: Path | None = None,
     entrypoint: str = "main.kcl",
     parameters_filename: str = "parameters.kcl",
+    metadata_path: str = "metadata.json",
 ) -> None:
     repo_root = repo_root.resolve()
     entrypoint = normalize_entrypoint_path(entrypoint, "entrypoint")
     parameters_filename = normalize_parameters_filename(parameters_filename)
+    metadata_path = normalize_metadata_path(metadata_path)
     selected_paths = load_entrypoint_paths(main_kcl_paths_json, "main_kcl_paths")
 
     all_main_files = find_entrypoint_files(repo_root, entrypoint)
@@ -367,7 +398,15 @@ def write_project_info(
     limit_to_selected = bool(selected_paths) or changed_files_file is not None
     if changed_files_file is not None and not selected_paths:
         changed_paths = load_changed_paths(changed_files_file)
-        main_files = main_files_for_changed_paths(repo_root, known_main_files, changed_paths)
+        shared_dependency_paths = set()
+        if len(PurePosixPath(metadata_path).parts) > 1:
+            shared_dependency_paths.add(metadata_path)
+        main_files = main_files_for_changed_paths(
+            repo_root,
+            known_main_files,
+            changed_paths,
+            shared_dependency_paths,
+        )
     elif not selected_paths:
         main_files = known_main_files
 
@@ -381,10 +420,10 @@ def write_project_info(
                 f"{relative_posix(main_kcl, repo_root)}"
             )
 
-        metadata_json = main_kcl.parent / "metadata.json"
+        metadata_json = metadata_file_for_entrypoint(repo_root, main_kcl, metadata_path)
         if not metadata_json.is_file():
             fail(
-                "required metadata.json file was not found next to "
+                f"required metadata file {metadata_path!r} was not found for "
                 f"{relative_posix(main_kcl, repo_root)}"
             )
         validate_metadata(metadata_json)
@@ -647,6 +686,7 @@ def build_parser() -> argparse.ArgumentParser:
     info_parser.add_argument("--changed-files-file", type=Path)
     info_parser.add_argument("--entrypoint", default="main.kcl")
     info_parser.add_argument("--parameters-filename", default="parameters.kcl")
+    info_parser.add_argument("--metadata-path", default="metadata.json")
 
     metadata_parser = subparsers.add_parser("metadata-env")
     metadata_parser.add_argument("--metadata-file", required=True, type=Path)
@@ -695,6 +735,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.changed_files_file,
                 args.entrypoint,
                 args.parameters_filename,
+                args.metadata_path,
             )
         elif args.command == "metadata-env":
             write_metadata_env(args.metadata_file, args.env_out)
