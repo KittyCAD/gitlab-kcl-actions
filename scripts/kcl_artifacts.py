@@ -209,7 +209,7 @@ def apply_parameter_values(parameters_file: Path, overrides: dict[str, Any]) -> 
     missing = sorted(replacement_names - seen)
     if missing:
         fail(
-            "parameters_json referenced parameter(s) not exported in parameters.kcl: "
+            "parameters_json referenced parameter(s) not exported in parameters file: "
             + ", ".join(missing)
         )
 
