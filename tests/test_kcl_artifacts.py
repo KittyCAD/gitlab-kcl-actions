@@ -920,6 +920,96 @@ class KclArtifactsTests(unittest.TestCase):
             )
             self.assertIn("parameters.json", manifest["artifacts"])
 
+    def test_manifest_names_parameter_overrides_after_stemmed_parameters_file(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact_dir = root / "kcl-artifacts"
+            artifact_dir.mkdir()
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text(
+                "root\tassembly.kcl\tassembly-parameters.kcl\tassembly-metadata.json\n",
+                encoding="utf-8",
+            )
+
+            kcl_artifacts.write_manifest(
+                artifact_dir,
+                assemblies,
+                "v1",
+                "",
+                json.dumps({"thing": 2}),
+            )
+
+            self.assertEqual(
+                json.loads((artifact_dir / "assembly-parameters.json").read_text()),
+                {"thing": 2},
+            )
+            self.assertFalse((artifact_dir / "parameters.json").exists())
+            manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["parameters_json"], "assembly-parameters.json")
+            self.assertIn("assembly-parameters.json", manifest["artifacts"])
+
+    def test_manifest_names_parameter_overrides_after_custom_parameters_file(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact_dir = root / "kcl-artifacts"
+            artifact_dir.mkdir()
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text(
+                "root\tassembly.kcl\tinputs.kcl\tmetadata.json\n",
+                encoding="utf-8",
+            )
+
+            kcl_artifacts.write_manifest(
+                artifact_dir,
+                assemblies,
+                "v1",
+                "",
+                json.dumps({"thing": 2}),
+            )
+
+            self.assertEqual(
+                json.loads((artifact_dir / "inputs.json").read_text()),
+                {"thing": 2},
+            )
+            manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["parameters_json"], "inputs.json")
+            self.assertIn("inputs.json", manifest["artifacts"])
+
+    def test_manifest_uses_default_parameter_override_name_for_mixed_parameter_files(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact_dir = root / "kcl-artifacts"
+            artifact_dir.mkdir()
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text(
+                "\n".join(
+                    [
+                        "root\tassembly.kcl\tassembly-parameters.kcl\tmetadata.json",
+                        "other\tother/assembly.kcl\tother/assembly_parameters.kcl\tother/metadata.json",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            kcl_artifacts.write_manifest(
+                artifact_dir,
+                assemblies,
+                "v1",
+                "",
+                json.dumps({"thing": 2}),
+            )
+
+            manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["parameters_json"], "parameters.json")
+            self.assertIn("parameters.json", manifest["artifacts"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -688,6 +688,18 @@ def write_source_files(
         shutil.copyfile(source, destination)
 
 
+def parameters_json_name_for_assemblies(assemblies: list[Assembly]) -> str:
+    names = set()
+    for assembly in assemblies:
+        path = PurePosixPath(assembly.parameters_kcl)
+        if path.suffix != ".kcl":
+            fail(f"assembly parameters_kcl must point to a .kcl file: {assembly.parameters_kcl!r}")
+        names.add(path.with_suffix(".json").name)
+    if len(names) == 1:
+        return names.pop()
+    return DEFAULT_PARAMETERS_FILENAME.replace(".kcl", ".json")
+
+
 def write_manifest(
     artifact_dir: Path,
     assemblies_file: Path,
@@ -696,8 +708,10 @@ def write_manifest(
     parameters_json: str,
 ) -> None:
     artifact_dir = artifact_dir.resolve()
+    loaded_assemblies = load_assemblies(assemblies_file)
     parameters_overrides = load_json_object(parameters_json, "parameters_json")
-    parameters_json_path = artifact_dir / "parameters.json"
+    parameters_json_name = parameters_json_name_for_assemblies(loaded_assemblies)
+    parameters_json_path = artifact_dir / parameters_json_name
     if parameters_overrides:
         parameters_json_path.write_text(
             json.dumps(parameters_overrides, indent=2, sort_keys=True) + "\n",
@@ -713,7 +727,7 @@ def write_manifest(
             "metadata_json": assembly.metadata_json,
             "parameters_kcl": assembly.parameters_kcl,
         }
-        for assembly in load_assemblies(assemblies_file)
+        for assembly in loaded_assemblies
     ]
     files = sorted(
         path.relative_to(artifact_dir).as_posix()
@@ -724,7 +738,7 @@ def write_manifest(
         "assemblies": assemblies,
         "zoo_version": zoo_version,
         "host": host or None,
-        "parameters_json": "parameters.json" if parameters_overrides else None,
+        "parameters_json": parameters_json_name if parameters_overrides else None,
         "parameters_override_keys": sorted(parameters_overrides),
         "parameters_overrides": parameters_overrides,
         "artifacts": files,
