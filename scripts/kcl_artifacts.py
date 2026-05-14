@@ -121,6 +121,20 @@ def normalize_entrypoint_path(raw_path: str, description: str) -> str:
     return path.as_posix()
 
 
+def normalize_parameters_filename(raw_filename: str) -> str:
+    path = PurePosixPath(raw_filename)
+    if raw_filename == "" or path.is_absolute() or len(path.parts) != 1:
+        fail(f"parameters_filename must be a relative .kcl filename: {raw_filename!r}")
+    if any(part in {"", ".", ".."} for part in path.parts):
+        fail(
+            "parameters_filename must not contain empty, '.', or '..' parts: "
+            f"{raw_filename!r}"
+        )
+    if path.suffix != ".kcl":
+        fail(f"parameters_filename must point to a .kcl file: {raw_filename!r}")
+    return path.as_posix()
+
+
 def normalize_repo_path(raw_path: str, description: str) -> str:
     path = PurePosixPath(raw_path)
     if raw_path == "" or path.is_absolute():
@@ -306,8 +320,9 @@ def snapshot_files_for_assemblies(
     selected_main_files: list[Path],
     all_main_files: list[Path],
     limit_to_selected: bool,
+    parameters_filename: str,
 ) -> list[Path]:
-    snapshot_files = [path for path in walk_kcl_files(repo_root) if path.name != "parameters.kcl"]
+    snapshot_files = [path for path in walk_kcl_files(repo_root) if path.name != parameters_filename]
     if not limit_to_selected:
         return snapshot_files
 
@@ -325,9 +340,11 @@ def write_project_info(
     main_kcl_paths_json: str = "[]",
     changed_files_file: Path | None = None,
     entrypoint: str = "main.kcl",
+    parameters_filename: str = "parameters.kcl",
 ) -> None:
     repo_root = repo_root.resolve()
     entrypoint = normalize_entrypoint_path(entrypoint, "entrypoint")
+    parameters_filename = normalize_parameters_filename(parameters_filename)
     selected_paths = load_entrypoint_paths(main_kcl_paths_json, "main_kcl_paths")
 
     all_main_files = find_entrypoint_files(repo_root, entrypoint)
@@ -358,10 +375,10 @@ def write_project_info(
     assemblies: list[Assembly] = []
     assembly_ids: set[str] = set()
     for main_kcl in main_files:
-        parameters_kcl = main_kcl.parent / "parameters.kcl"
+        parameters_kcl = main_kcl.parent / parameters_filename
         if not parameters_kcl.is_file():
             fail(
-                "required parameters.kcl file was not found next to "
+                f"required {parameters_filename} file was not found next to "
                 f"{relative_posix(main_kcl, repo_root)}"
             )
 
@@ -391,6 +408,7 @@ def write_project_info(
         main_files,
         known_main_files,
         limit_to_selected,
+        parameters_filename,
     )
 
     assemblies_out.write_text(
@@ -451,7 +469,7 @@ def apply_project_parameters(
     if missing:
         fail(
             "parameters_json referenced parameter(s) not exported in any "
-            "parameters.kcl: " + ", ".join(missing)
+            "parameters file: " + ", ".join(missing)
         )
 
     for parameters_file, names in names_by_file.items():
@@ -629,6 +647,7 @@ def build_parser() -> argparse.ArgumentParser:
     info_parser.add_argument("--main-kcl-paths", default="[]")
     info_parser.add_argument("--changed-files-file", type=Path)
     info_parser.add_argument("--entrypoint", default="main.kcl")
+    info_parser.add_argument("--parameters-filename", default="parameters.kcl")
 
     metadata_parser = subparsers.add_parser("metadata-env")
     metadata_parser.add_argument("--metadata-file", required=True, type=Path)
@@ -676,6 +695,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.main_kcl_paths,
                 args.changed_files_file,
                 args.entrypoint,
+                args.parameters_filename,
             )
         elif args.command == "metadata-env":
             write_metadata_env(args.metadata_file, args.env_out)

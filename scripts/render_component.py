@@ -94,6 +94,9 @@ def render_kcl_artifacts() -> str:
     entrypoint:
       default: main.kcl
       description: "KCL entrypoint filename or repo-relative path to discover when main_kcl_paths is empty."
+    parameters_filename:
+      default: parameters.kcl
+      description: "Sibling KCL parameters filename next to each selected entrypoint."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."
@@ -166,6 +169,7 @@ def render_kcl_artifacts() -> str:
     KCL_MAIN_KCL_PATHS: |-
       $[[ inputs.main_kcl_paths ]]
     KCL_ENTRYPOINT: '$[[ inputs.entrypoint ]]'
+    KCL_PARAMETERS_FILENAME: '$[[ inputs.parameters_filename ]]'
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
     KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'
