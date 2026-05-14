@@ -13,6 +13,7 @@ main_kcl_paths="${KCL_MAIN_KCL_PATHS:-}"
 if [[ -z "$main_kcl_paths" ]]; then
   main_kcl_paths="[]"
 fi
+entrypoint="${KCL_ENTRYPOINT:-main.kcl}"
 host="${KCL_ZOO_HOST:-}"
 snapshot_angle="${KCL_SNAPSHOT_ANGLE:-four-ways}"
 snapshot_views="${KCL_SNAPSHOT_VIEWS:-iso,front,top,right-side}"
@@ -127,6 +128,7 @@ python3 "$python_helper" project-info \
   --assemblies-out "$state_dir/assemblies.tsv" \
   --snapshots-out "$state_dir/snapshots.list" \
   --main-kcl-paths "$main_kcl_paths" \
+  --entrypoint "$entrypoint" \
   "${changed_files_args[@]}"
 
 if [[ ! -s "$state_dir/assemblies.tsv" ]]; then

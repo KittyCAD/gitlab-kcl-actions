@@ -90,7 +90,10 @@ def render_kcl_artifacts() -> str:
       description: "JSON object of values to replace in sibling parameters.kcl files before running Zoo."
     main_kcl_paths:
       default: "[]"
-      description: "Optional bare path, JSON string, or JSON array of main.kcl paths. Empty processes changed assemblies only."
+      description: "Optional bare path, JSON string, or JSON array of KCL entrypoint paths. Empty processes changed assemblies only."
+    entrypoint:
+      default: main.kcl
+      description: "KCL entrypoint filename or repo-relative path to discover when main_kcl_paths is empty."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."
@@ -162,6 +165,7 @@ def render_kcl_artifacts() -> str:
       $[[ inputs.parameters_json ]]
     KCL_MAIN_KCL_PATHS: |-
       $[[ inputs.main_kcl_paths ]]
+    KCL_ENTRYPOINT: '$[[ inputs.entrypoint ]]'
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
     KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'

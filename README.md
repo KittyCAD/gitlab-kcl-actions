@@ -88,7 +88,7 @@ include:
 ```
 
 Limit the workflow to one or more assembly entrypoints when the repo has
-multiple `main.kcl` files:
+multiple KCL entrypoint files:
 
 ```yaml
 include:
@@ -99,10 +99,24 @@ include:
 ```
 
 `main_kcl_paths` accepts a bare relative path, a JSON string, or a JSON array of
-relative paths to files named `main.kcl`. If it is empty, the workflow detects
+relative paths to `.kcl` entrypoint files. If it is empty, the workflow detects
 changed files with Git and processes only the assembly directories that contain
-or own those changes. If no changed file belongs to a directory with a
-`main.kcl`, the job exits successfully without producing artifacts.
+or own those changes. If no changed file belongs to a directory with a matching
+entrypoint, the job exits successfully without producing artifacts.
+
+Use `entrypoint` when a repo's KCL project uses a filename other than
+`main.kcl`:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
+    inputs:
+      entrypoint: assembly.kcl
+```
+
+`entrypoint` defaults to `main.kcl`. A bare filename discovers every matching
+file in the repo; a repo-relative path targets that one entrypoint when
+`main_kcl_paths` is empty.
 
 GitLab evaluates `spec:inputs` when the pipeline is created. Per GitLab's
 input limits, the string inside an interpolation block must stay under 1 KB, so
@@ -121,7 +135,7 @@ spec:
     kcl_main_kcl_paths:
       type: string
       default: "[]"
-      description: "Optional JSON string or array of main.kcl paths to process. Empty auto-selects changed assemblies."
+      description: "Optional JSON string or array of KCL entrypoint paths to process. Empty auto-selects changed assemblies."
 ---
 
 include:
@@ -182,13 +196,13 @@ the token.
 
 Consuming repositories must contain:
 
-- one or more `main.kcl` files. A root `main.kcl` works, and nested assembly
-  entrypoints like `assembly-1/main.kcl` and `assembly-2/main.kcl` work too.
-- a sibling `parameters.kcl` next to every `main.kcl`.
-- a sibling `metadata.json` next to every `main.kcl`.
+- one or more KCL entrypoint files. By default these are named `main.kcl`, but
+  the `entrypoint` input can point at a different filename or path.
+- a sibling `parameters.kcl` next to every entrypoint file.
+- a sibling `metadata.json` next to every entrypoint file.
 
-Missing `main.kcl`, missing sibling `parameters.kcl`, duplicate assembly IDs,
-and missing or invalid sibling `metadata.json` files are hard failures.
+Missing entrypoint files, missing sibling `parameters.kcl`, duplicate assembly
+IDs, and missing or invalid sibling `metadata.json` files are hard failures.
 
 #### `parameters.kcl`
 
@@ -249,7 +263,7 @@ top-level parameters and model files use `import * from "parameters.kcl"`.
 
 #### `metadata.json`
 
-`metadata.json` lives next to each `main.kcl` and provides the physics arguments
+`metadata.json` lives next to each entrypoint file and provides the physics arguments
 for that entrypoint's `zoo kcl analyze` and derived bounding-box artifact. A
 root `main.kcl` uses the root `metadata.json`; `assembly-2/main.kcl` uses
 `assembly-2/metadata.json`. The workflow does not fall back from a nested
@@ -360,7 +374,7 @@ kcl-artifacts/
   manifest.json
 ```
 
-Each `main.kcl` gets STEP, glTF, physics analysis, bounding box, and a
+Each entrypoint file gets STEP, glTF, physics analysis, bounding box, and a
 four-ways assembly snapshot preview under
 `kcl-artifacts/assemblies/<assembly-id>/`. The root entrypoint uses `root` as
 its assembly ID. Nested entrypoints use their directory path relative to the

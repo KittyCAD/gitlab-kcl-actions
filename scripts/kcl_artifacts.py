@@ -80,7 +80,7 @@ def load_json_object(raw: str, description: str) -> dict[str, Any]:
     return value
 
 
-def load_main_kcl_paths(raw: str, description: str) -> list[str]:
+def load_entrypoint_paths(raw: str, description: str) -> list[str]:
     text = raw.strip()
     if not text:
         return []
@@ -95,14 +95,14 @@ def load_main_kcl_paths(raw: str, description: str) -> list[str]:
             values = value
         else:
             fail(
-                f"{description} must be a relative main.kcl path, JSON string, "
+                f"{description} must be a relative .kcl entrypoint path, JSON string, "
                 "or JSON array of strings"
             )
 
     output: list[str] = []
     seen: set[str] = set()
     for item in values:
-        path = normalize_main_kcl_path(item)
+        path = normalize_entrypoint_path(item, "entrypoint")
         if path in seen:
             fail(f"{description} contains duplicate path: {path}")
         seen.add(path)
@@ -110,14 +110,14 @@ def load_main_kcl_paths(raw: str, description: str) -> list[str]:
     return output
 
 
-def normalize_main_kcl_path(raw_path: str) -> str:
+def normalize_entrypoint_path(raw_path: str, description: str) -> str:
     path = PurePosixPath(raw_path)
     if raw_path == "" or path.is_absolute():
-        fail(f"main.kcl path must be relative: {raw_path!r}")
+        fail(f"{description} path must be relative: {raw_path!r}")
     if any(part in {"", ".", ".."} for part in path.parts):
-        fail(f"main.kcl path must not contain empty, '.', or '..' parts: {raw_path!r}")
-    if path.name != "main.kcl":
-        fail(f"main.kcl path must point to a file named main.kcl: {raw_path!r}")
+        fail(f"{description} path must not contain empty, '.', or '..' parts: {raw_path!r}")
+    if path.suffix != ".kcl":
+        fail(f"{description} path must point to a .kcl file: {raw_path!r}")
     return path.as_posix()
 
 
@@ -238,6 +238,15 @@ def find_named_files(repo_root: Path, filename: str) -> list[Path]:
     return [path for path in walk_kcl_files(repo_root) if path.name == filename]
 
 
+def find_entrypoint_files(repo_root: Path, entrypoint: str) -> list[Path]:
+    entrypoint_path = PurePosixPath(entrypoint)
+    if len(entrypoint_path.parts) == 1:
+        return find_named_files(repo_root, entrypoint)
+
+    path = repo_root / entrypoint_path.as_posix()
+    return [path] if path.is_file() else []
+
+
 def assembly_id_for_main(main_kcl: Path, repo_root: Path) -> str:
     relative_dir = main_kcl.parent.relative_to(repo_root).as_posix()
     return "root" if relative_dir == "." else relative_dir
@@ -315,31 +324,36 @@ def write_project_info(
     snapshots_out: Path,
     main_kcl_paths_json: str = "[]",
     changed_files_file: Path | None = None,
+    entrypoint: str = "main.kcl",
 ) -> None:
     repo_root = repo_root.resolve()
-    all_main_files = find_named_files(repo_root, "main.kcl")
-    if not all_main_files:
+    entrypoint = normalize_entrypoint_path(entrypoint, "entrypoint")
+    selected_paths = load_entrypoint_paths(main_kcl_paths_json, "main_kcl_paths")
+
+    all_main_files = find_entrypoint_files(repo_root, entrypoint)
+    if selected_paths:
+        main_files = []
+        for path in selected_paths:
+            main_file = repo_root / path
+            if not main_file.is_file():
+                fail(f"main_kcl_paths referenced missing .kcl file: {path}")
+            main_files.append(main_file)
+        known_main_files = sorted({*all_main_files, *main_files})
+    elif not all_main_files:
         if changed_files_file is not None:
             assemblies_out.write_text("", encoding="utf-8")
             snapshots_out.write_text("", encoding="utf-8")
             return
-        fail("required main.kcl file was not found")
-
-    selected_paths = load_main_kcl_paths(main_kcl_paths_json, "main_kcl_paths")
-    limit_to_selected = bool(selected_paths) or changed_files_file is not None
-    if selected_paths:
-        main_files_by_path = {
-            relative_posix(main_kcl, repo_root): main_kcl for main_kcl in all_main_files
-        }
-        missing = [path for path in selected_paths if path not in main_files_by_path]
-        if missing:
-            fail("main_kcl_paths referenced missing main.kcl file(s): " + ", ".join(missing))
-        main_files = [main_files_by_path[path] for path in selected_paths]
-    elif changed_files_file is not None:
-        changed_paths = load_changed_paths(changed_files_file)
-        main_files = main_files_for_changed_paths(repo_root, all_main_files, changed_paths)
+        fail(f"required entrypoint file was not found: {entrypoint}")
     else:
-        main_files = all_main_files
+        known_main_files = all_main_files
+
+    limit_to_selected = bool(selected_paths) or changed_files_file is not None
+    if changed_files_file is not None and not selected_paths:
+        changed_paths = load_changed_paths(changed_files_file)
+        main_files = main_files_for_changed_paths(repo_root, known_main_files, changed_paths)
+    elif not selected_paths:
+        main_files = known_main_files
 
     assemblies: list[Assembly] = []
     assembly_ids: set[str] = set()
@@ -375,7 +389,7 @@ def write_project_info(
     snapshot_files = snapshot_files_for_assemblies(
         repo_root,
         main_files,
-        all_main_files,
+        known_main_files,
         limit_to_selected,
     )
 
@@ -410,7 +424,7 @@ def load_assemblies(assemblies_file: Path) -> list[Assembly]:
             fail(f"invalid assemblies file row: {line!r}")
         assemblies.append(Assembly(*fields))
     if not assemblies:
-        fail("assemblies file did not contain any main.kcl entries")
+        fail("assemblies file did not contain any entrypoint entries")
     return assemblies
 
 
@@ -614,6 +628,7 @@ def build_parser() -> argparse.ArgumentParser:
     info_parser.add_argument("--snapshots-out", required=True, type=Path)
     info_parser.add_argument("--main-kcl-paths", default="[]")
     info_parser.add_argument("--changed-files-file", type=Path)
+    info_parser.add_argument("--entrypoint", default="main.kcl")
 
     metadata_parser = subparsers.add_parser("metadata-env")
     metadata_parser.add_argument("--metadata-file", required=True, type=Path)
@@ -660,6 +675,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.snapshots_out,
                 args.main_kcl_paths,
                 args.changed_files_file,
+                args.entrypoint,
             )
         elif args.command == "metadata-env":
             write_metadata_env(args.metadata_file, args.env_out)
