@@ -300,7 +300,7 @@ class KclArtifactsTests(unittest.TestCase):
                 ],
             )
 
-    def test_project_info_hard_parameter_override_does_not_try_stem_default(
+    def test_project_info_missing_custom_parameters_filename_does_not_try_stem_default(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -308,15 +308,25 @@ class KclArtifactsTests(unittest.TestCase):
             (root / "assembly.kcl").write_text("", encoding="utf-8")
             (root / "assembly-parameters.kcl").write_text("", encoding="utf-8")
             write_metadata(root / "metadata.json")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
 
-            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "inputs.kcl"):
-                kcl_artifacts.write_project_info(
-                    root,
-                    root / "assemblies.tsv",
-                    root / "snapshots.list",
-                    entrypoint="assembly.kcl",
-                    parameters_filename="inputs.kcl",
-                )
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                entrypoint="assembly.kcl",
+                parameters_filename="inputs.kcl",
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8"),
+                "root\tassembly.kcl\t-\tmetadata.json\n",
+            )
+            self.assertEqual(
+                snapshots_out.read_text(encoding="utf-8").splitlines(),
+                ["assembly-parameters.kcl", "assembly.kcl"],
+            )
 
     def test_project_info_can_use_custom_metadata_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -348,7 +358,7 @@ class KclArtifactsTests(unittest.TestCase):
                 ],
             )
 
-    def test_project_info_hard_metadata_override_does_not_try_stem_default(
+    def test_project_info_missing_custom_metadata_filename_does_not_try_stem_default(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -356,15 +366,21 @@ class KclArtifactsTests(unittest.TestCase):
             (root / "assembly.kcl").write_text("", encoding="utf-8")
             (root / "parameters.kcl").write_text("", encoding="utf-8")
             write_metadata(root / "assembly-metadata.json")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
 
-            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "mass-properties.json"):
-                kcl_artifacts.write_project_info(
-                    root,
-                    root / "assemblies.tsv",
-                    root / "snapshots.list",
-                    entrypoint="assembly.kcl",
-                    metadata_path="mass-properties.json",
-                )
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+                entrypoint="assembly.kcl",
+                metadata_path="mass-properties.json",
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8"),
+                "root\tassembly.kcl\tparameters.kcl\t-\n",
+            )
 
     def test_project_info_can_use_shared_metadata_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -397,7 +413,7 @@ class KclArtifactsTests(unittest.TestCase):
                 ],
             )
 
-    def test_project_info_requires_parameters_next_to_each_main_file(self) -> None:
+    def test_project_info_allows_missing_parameters_next_to_main_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "main.kcl").write_text("", encoding="utf-8")
@@ -406,15 +422,25 @@ class KclArtifactsTests(unittest.TestCase):
             nested = root / "nested"
             nested.mkdir()
             (nested / "main.kcl").write_text("", encoding="utf-8")
+            write_metadata(nested / "metadata.json")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
 
-            with self.assertRaises(kcl_artifacts.WorkflowError):
-                kcl_artifacts.write_project_info(
-                    root,
-                    root / "env",
-                    root / "snapshots",
-                )
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+            )
 
-    def test_project_info_requires_metadata_next_to_each_main_file(self) -> None:
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                [
+                    "root\tmain.kcl\tparameters.kcl\tmetadata.json",
+                    "nested\tnested/main.kcl\t-\tnested/metadata.json",
+                ],
+            )
+
+    def test_project_info_allows_missing_metadata_next_to_main_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "main.kcl").write_text("", encoding="utf-8")
@@ -424,13 +450,22 @@ class KclArtifactsTests(unittest.TestCase):
             nested.mkdir()
             (nested / "main.kcl").write_text("", encoding="utf-8")
             (nested / "parameters.kcl").write_text("", encoding="utf-8")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
 
-            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "metadata.json"):
-                kcl_artifacts.write_project_info(
-                    root,
-                    root / "env",
-                    root / "snapshots",
-                )
+            kcl_artifacts.write_project_info(
+                root,
+                assemblies_out,
+                snapshots_out,
+            )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8").splitlines(),
+                [
+                    "root\tmain.kcl\tparameters.kcl\tmetadata.json",
+                    "nested\tnested/main.kcl\tnested/parameters.kcl\t-",
+                ],
+            )
 
     def test_project_info_can_filter_to_selected_main_kcl_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -787,6 +822,33 @@ class KclArtifactsTests(unittest.TestCase):
                 "export height = 99\nexport depth = 5\n",
             )
 
+    def test_project_parameters_skip_assemblies_without_parameters_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            nested = root / "nested"
+            nested.mkdir()
+            nested_params = nested / "parameters.kcl"
+            nested_params.write_text("export height = 10\n", encoding="utf-8")
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text(
+                "\n".join(
+                    [
+                        "root\tmain.kcl\t-\tmetadata.json",
+                        "nested\tnested/main.kcl\tnested/parameters.kcl\tnested/metadata.json",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            kcl_artifacts.apply_project_parameters(
+                root,
+                assemblies,
+                json.dumps({"height": 99}),
+            )
+
+            self.assertEqual(nested_params.read_text(encoding="utf-8"), "export height = 99\n")
+
     def test_project_parameters_fail_when_key_is_missing_everywhere(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -794,6 +856,22 @@ class KclArtifactsTests(unittest.TestCase):
             assemblies = root / "assemblies.tsv"
             assemblies.write_text(
                 "root\tmain.kcl\tparameters.kcl\tmetadata.json\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "not exported"):
+                kcl_artifacts.apply_project_parameters(
+                    root,
+                    assemblies,
+                    json.dumps({"depth": 5}),
+                )
+
+    def test_project_parameters_fail_when_no_selected_assembly_has_parameters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text(
+                "root\tmain.kcl\t-\tmetadata.json\n",
                 encoding="utf-8",
             )
 
@@ -872,6 +950,21 @@ class KclArtifactsTests(unittest.TestCase):
                 },
             )
 
+    def test_source_copy_skips_missing_optional_support_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "main.kcl").write_text("", encoding="utf-8")
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text("root\tmain.kcl\t-\t-\n", encoding="utf-8")
+            snapshots = root / "snapshots.list"
+            snapshots.write_text("main.kcl\n", encoding="utf-8")
+            output = root / "source"
+
+            kcl_artifacts.write_source_files(root, snapshots, assemblies, output)
+
+            self.assertTrue((output / "main.kcl").is_file())
+            self.assertEqual(list(output.rglob("*")), [output / "main.kcl"])
+
     def test_manifest_saves_parameter_overrides_for_upload_tags(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -919,6 +1012,53 @@ class KclArtifactsTests(unittest.TestCase):
                 {"label": "hello world", "thing": 2},
             )
             self.assertIn("parameters.json", manifest["artifacts"])
+
+    def test_manifest_records_missing_optional_support_files_as_null(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact_dir = root / "kcl-artifacts"
+            artifact_dir.mkdir()
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text(
+                "root\tmain.kcl\t-\t-\n",
+                encoding="utf-8",
+            )
+
+            kcl_artifacts.write_manifest(artifact_dir, assemblies, "v1", "", "{}")
+
+            manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["assemblies"],
+                [
+                    {
+                        "id": "root",
+                        "main_kcl": "main.kcl",
+                        "metadata_json": None,
+                        "parameters_kcl": None,
+                    }
+                ],
+            )
+            self.assertIsNone(manifest["parameters_json"])
+
+    def test_manifest_fails_parameter_overrides_without_parameters_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact_dir = root / "kcl-artifacts"
+            artifact_dir.mkdir()
+            assemblies = root / "assemblies.tsv"
+            assemblies.write_text(
+                "root\tmain.kcl\t-\tmetadata.json\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(kcl_artifacts.WorkflowError, "parameters file"):
+                kcl_artifacts.write_manifest(
+                    artifact_dir,
+                    assemblies,
+                    "v1",
+                    "",
+                    json.dumps({"thing": 2}),
+                )
 
     def test_manifest_names_parameter_overrides_after_stemmed_parameters_file(
         self,

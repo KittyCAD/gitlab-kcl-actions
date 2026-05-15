@@ -365,13 +365,13 @@ process_assembly() {
   local main_kcl="$3"
   local metadata_json="$4"
   local assembly_dir="$artifact_dir/assemblies/$assembly_id"
-  local metadata_env
-  local analysis_file
-  local bounding_box_analysis_file
+  local metadata_env=""
+  local analysis_file=""
+  local bounding_box_analysis_file=""
   local entrypoint_filename
   local entrypoint_stem
   local lint_pid
-  local analysis_pid
+  local analysis_pid=""
   local bounding_box_analysis_pid=""
   local step_pid
   local gltf_pid
@@ -383,26 +383,32 @@ process_assembly() {
   entrypoint_filename="${main_kcl##*/}"
   entrypoint_stem="${entrypoint_filename%.kcl}"
 
-  metadata_env="${state_dir}/metadata-${assembly_index}.env"
-  python3 "$python_helper" metadata-env \
-    --metadata-file "$metadata_json" \
-    --env-out "$metadata_env"
+  if [[ "$metadata_json" == "-" ]]; then
+    echo "warning: no metadata JSON for ${main_kcl}; skipping physics artifacts" >&2
+  else
+    metadata_env="${state_dir}/metadata-${assembly_index}.env"
+    python3 "$python_helper" metadata-env \
+      --metadata-file "$metadata_json" \
+      --env-out "$metadata_env"
 
-  # shellcheck disable=SC1090
-  source "$metadata_env"
+    # shellcheck disable=SC1090
+    source "$metadata_env"
+  fi
 
   run_zoo "${zoo_cmd[@]}" kcl lint "$main_kcl" &
   lint_pid="$!"
 
-  analysis_file="$assembly_dir/${entrypoint_stem}-analysis.json"
-  write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT" &
-  analysis_pid="$!"
+  if [[ "$metadata_json" != "-" ]]; then
+    analysis_file="$assembly_dir/${entrypoint_stem}-analysis.json"
+    write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT" &
+    analysis_pid="$!"
 
-  bounding_box_analysis_file="$analysis_file"
-  if [[ "$BOUNDING_BOX_OUTPUT_UNIT" != "$CENTER_OF_MASS_OUTPUT_UNIT" ]]; then
-    bounding_box_analysis_file="${state_dir}/bounding-box-analysis-${assembly_index}.json"
-    write_analysis "$bounding_box_analysis_file" "$main_kcl" "$BOUNDING_BOX_OUTPUT_UNIT" &
-    bounding_box_analysis_pid="$!"
+    bounding_box_analysis_file="$analysis_file"
+    if [[ "$BOUNDING_BOX_OUTPUT_UNIT" != "$CENTER_OF_MASS_OUTPUT_UNIT" ]]; then
+      bounding_box_analysis_file="${state_dir}/bounding-box-analysis-${assembly_index}.json"
+      write_analysis "$bounding_box_analysis_file" "$main_kcl" "$BOUNDING_BOX_OUTPUT_UNIT" &
+      bounding_box_analysis_pid="$!"
+    fi
   fi
 
   export_one \
@@ -431,7 +437,9 @@ process_assembly() {
   snapshot_pid="$!"
 
   record_assembly_command_status "$lint_pid" "lint ${main_kcl}"
-  record_assembly_command_status "$analysis_pid" "analysis ${main_kcl}"
+  if [[ -n "$analysis_pid" ]]; then
+    record_assembly_command_status "$analysis_pid" "analysis ${main_kcl}"
+  fi
   if [[ -n "$bounding_box_analysis_pid" ]]; then
     record_assembly_command_status \
       "$bounding_box_analysis_pid" \
@@ -445,10 +453,12 @@ process_assembly() {
     return "$failure_status"
   fi
 
-  python3 "$python_helper" bounding-box-json \
-    --analysis-file "$bounding_box_analysis_file" \
-    --output-file "$assembly_dir/${entrypoint_stem}-bounding-box.json" \
-    --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
+  if [[ "$metadata_json" != "-" ]]; then
+    python3 "$python_helper" bounding-box-json \
+      --analysis-file "$bounding_box_analysis_file" \
+      --output-file "$assembly_dir/${entrypoint_stem}-bounding-box.json" \
+      --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
+  fi
 }
 
 assembly_index=0

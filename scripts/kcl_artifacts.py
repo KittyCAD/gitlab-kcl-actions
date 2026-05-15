@@ -40,6 +40,7 @@ ENV_NAMES = {
 DEFAULT_ENTRYPOINT = "main.kcl"
 DEFAULT_PARAMETERS_FILENAME = "parameters.kcl"
 DEFAULT_METADATA_PATH = "metadata.json"
+MISSING_ASSEMBLY_FIELD = "-"
 
 ASSIGNMENT_RE = re.compile(
     r"^(?P<prefix>export\s+)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<equals>\s*=\s*)"
@@ -63,12 +64,26 @@ class WorkflowError(Exception):
 class Assembly:
     id: str
     main_kcl: str
-    parameters_kcl: str
-    metadata_json: str
+    parameters_kcl: str | None
+    metadata_json: str | None
 
 
 def fail(message: str) -> NoReturn:
     raise WorkflowError(message)
+
+
+def warn(message: str) -> None:
+    print(f"warning: {message}", file=sys.stderr)
+
+
+def assembly_file_field(path: str | None) -> str:
+    return path if path is not None else MISSING_ASSEMBLY_FIELD
+
+
+def optional_assembly_file_field(raw_path: str) -> str | None:
+    if raw_path in {"", MISSING_ASSEMBLY_FIELD}:
+        return None
+    return raw_path
 
 
 def load_json_object(raw: str, description: str) -> dict[str, Any]:
@@ -185,7 +200,7 @@ def parameters_file_for_entrypoint(
     repo_root: Path,
     main_kcl: Path,
     parameters_filename: str,
-) -> Path:
+) -> Path | None:
     if parameters_filename == DEFAULT_PARAMETERS_FILENAME:
         candidates = default_sibling_candidates(main_kcl, parameters_filename)
     else:
@@ -193,10 +208,11 @@ def parameters_file_for_entrypoint(
 
     parameters_file = first_existing_file(candidates)
     if parameters_file is None:
-        fail(
-            f"required parameters file was not found for "
+        warn(
+            f"parameters file was not found for "
             f"{relative_posix(main_kcl, repo_root)}; tried "
-            f"{candidate_list_message(candidates, repo_root)}"
+            f"{candidate_list_message(candidates, repo_root)}; "
+            "parameter overrides will be skipped for this assembly"
         )
     return parameters_file
 
@@ -205,13 +221,14 @@ def metadata_file_for_entrypoint(
     repo_root: Path,
     main_kcl: Path,
     metadata_path: str,
-) -> Path:
+) -> Path | None:
     path = PurePosixPath(metadata_path)
     if len(path.parts) > 1:
         metadata_file = repo_root / path.as_posix()
         if metadata_file.is_file():
             return metadata_file
-        fail(f"required metadata file {metadata_path!r} was not found")
+        warn(f"metadata file {metadata_path!r} was not found; physics artifacts will be skipped")
+        return None
 
     if metadata_path == DEFAULT_METADATA_PATH:
         candidates = default_sibling_candidates(main_kcl, metadata_path)
@@ -220,16 +237,21 @@ def metadata_file_for_entrypoint(
 
     metadata_file = first_existing_file(candidates)
     if metadata_file is None:
-        fail(
-            f"required metadata file was not found for "
+        warn(
+            f"metadata file was not found for "
             f"{relative_posix(main_kcl, repo_root)}; tried "
-            f"{candidate_list_message(candidates, repo_root)}"
+            f"{candidate_list_message(candidates, repo_root)}; "
+            "physics artifacts will be skipped for this assembly"
         )
     return metadata_file
 
 
 def parameter_paths_for_assemblies(assemblies: list[Assembly], repo_root: Path) -> set[Path]:
-    return {repo_root / assembly.parameters_kcl for assembly in assemblies}
+    return {
+        repo_root / assembly.parameters_kcl
+        for assembly in assemblies
+        if assembly.parameters_kcl is not None
+    }
 
 
 def normalize_repo_path(raw_path: str, description: str) -> str:
@@ -495,7 +517,8 @@ def write_project_info(
             parameters_filename,
         )
         metadata_json = metadata_file_for_entrypoint(repo_root, main_kcl, metadata_path)
-        validate_metadata(metadata_json)
+        if metadata_json is not None:
+            validate_metadata(metadata_json)
 
         assembly_id = assembly_id_for_main(main_kcl, repo_root)
         if assembly_id in assembly_ids:
@@ -505,8 +528,8 @@ def write_project_info(
             Assembly(
                 assembly_id,
                 relative_posix(main_kcl, repo_root),
-                relative_posix(parameters_kcl, repo_root),
-                relative_posix(metadata_json, repo_root),
+                relative_posix(parameters_kcl, repo_root) if parameters_kcl is not None else None,
+                relative_posix(metadata_json, repo_root) if metadata_json is not None else None,
             )
         )
 
@@ -524,8 +547,8 @@ def write_project_info(
                 [
                     assembly.id,
                     assembly.main_kcl,
-                    assembly.parameters_kcl,
-                    assembly.metadata_json,
+                    assembly_file_field(assembly.parameters_kcl),
+                    assembly_file_field(assembly.metadata_json),
                 ]
             )
             + "\n"
@@ -547,7 +570,14 @@ def load_assemblies(assemblies_file: Path) -> list[Assembly]:
         fields = line.split("\t")
         if len(fields) != 4:
             fail(f"invalid assemblies file row: {line!r}")
-        assemblies.append(Assembly(*fields))
+        assemblies.append(
+            Assembly(
+                fields[0],
+                fields[1],
+                optional_assembly_file_field(fields[2]),
+                optional_assembly_file_field(fields[3]),
+            )
+        )
     if not assemblies:
         fail("assemblies file did not contain any entrypoint entries")
     return assemblies
@@ -567,6 +597,12 @@ def apply_project_parameters(
     names_by_file: dict[Path, set[str]] = {}
     seen: set[str] = set()
     for assembly in assemblies:
+        if assembly.parameters_kcl is None:
+            warn(
+                f"assembly {assembly.id} has no parameters file; "
+                "skipping parameter overrides for it"
+            )
+            continue
         parameters_file = repo_root / assembly.parameters_kcl
         names = exported_parameter_names(parameters_file)
         names_by_file[parameters_file] = names
@@ -676,8 +712,10 @@ def write_source_files(
         relative_paths.add(relative_path)
 
     for assembly in load_assemblies(assemblies_file):
-        relative_paths.add(normalize_repo_path(assembly.parameters_kcl, "source file"))
-        relative_paths.add(normalize_repo_path(assembly.metadata_json, "source file"))
+        if assembly.parameters_kcl is not None:
+            relative_paths.add(normalize_repo_path(assembly.parameters_kcl, "source file"))
+        if assembly.metadata_json is not None:
+            relative_paths.add(normalize_repo_path(assembly.metadata_json, "source file"))
 
     for relative_path in sorted(relative_paths):
         source = repo_root / relative_path
@@ -691,10 +729,14 @@ def write_source_files(
 def parameters_json_name_for_assemblies(assemblies: list[Assembly]) -> str:
     names = set()
     for assembly in assemblies:
+        if assembly.parameters_kcl is None:
+            continue
         path = PurePosixPath(assembly.parameters_kcl)
         if path.suffix != ".kcl":
             fail(f"assembly parameters_kcl must point to a .kcl file: {assembly.parameters_kcl!r}")
         names.add(path.with_suffix(".json").name)
+    if not names:
+        fail("parameters_json was supplied, but no selected assembly has a parameters file")
     if len(names) == 1:
         return names.pop()
     return DEFAULT_PARAMETERS_FILENAME.replace(".kcl", ".json")
@@ -710,15 +752,15 @@ def write_manifest(
     artifact_dir = artifact_dir.resolve()
     loaded_assemblies = load_assemblies(assemblies_file)
     parameters_overrides = load_json_object(parameters_json, "parameters_json")
-    parameters_json_name = parameters_json_name_for_assemblies(loaded_assemblies)
-    parameters_json_path = artifact_dir / parameters_json_name
+    parameters_json_name = (
+        parameters_json_name_for_assemblies(loaded_assemblies) if parameters_overrides else None
+    )
     if parameters_overrides:
+        parameters_json_path = artifact_dir / str(parameters_json_name)
         parameters_json_path.write_text(
             json.dumps(parameters_overrides, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-    elif parameters_json_path.exists():
-        parameters_json_path.unlink()
 
     assemblies = [
         {
