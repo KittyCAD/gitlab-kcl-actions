@@ -133,6 +133,7 @@ python3 "$python_helper" project-info \
   --entrypoint "$entrypoint" \
   --parameters-filename "$parameters_filename" \
   --metadata-path "$metadata_path" \
+  --parameters-json "$parameters_json" \
   "${changed_files_args[@]}"
 
 if [[ ! -s "$state_dir/assemblies.tsv" ]]; then

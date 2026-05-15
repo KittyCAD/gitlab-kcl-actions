@@ -255,18 +255,21 @@ Consuming repositories must contain:
   entrypoint or one shared repo-relative `.json` path.
 
 Missing entrypoint files and duplicate assembly IDs are hard failures. Missing
-parameters files are warnings unless `parameters_json` references a value that is
-not exported by any selected parameters file. Missing metadata files are
-warnings; the workflow still writes STEP, glTF, and snapshot artifacts but skips
-physics analysis and bounding-box JSON for that assembly. Invalid metadata JSON
-is still a hard failure when the file exists.
+parameters files are ignored when `parameters_json` is empty or `{}`. When
+overrides are supplied, missing parameters files produce warnings, and the
+workflow fails if an override key is not exported by any selected parameters
+file. Missing metadata files are warnings; the workflow still writes STEP, glTF,
+and snapshot artifacts but skips physics analysis and bounding-box JSON for that
+assembly. Invalid metadata JSON is still a hard failure when the file exists.
 
 #### Parameters file
 
 The `parameters_json` input replaces existing exported top-level assignments in
-each discovered sibling parameters file. Assemblies without a parameters file
-are left alone. It does not add new parameters and it does not replace
-non-exported local values. The default filename is
+each discovered sibling parameters file. If `parameters_json` is empty or `{}`,
+parameters files are optional and missing files are ignored. When overrides are
+supplied, assemblies without a parameters file are left alone unless that leaves
+an override key with no matching export anywhere. It does not add new parameters
+and it does not replace non-exported local values. The default filename is
 `parameters.kcl`, with the same non-`main.kcl` entrypoint-stem fallback described
 above.
 

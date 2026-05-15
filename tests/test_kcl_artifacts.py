@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -311,13 +313,15 @@ class KclArtifactsTests(unittest.TestCase):
             assemblies_out = root / "assemblies.tsv"
             snapshots_out = root / "snapshots.list"
 
-            kcl_artifacts.write_project_info(
-                root,
-                assemblies_out,
-                snapshots_out,
-                entrypoint="assembly.kcl",
-                parameters_filename="inputs.kcl",
-            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                kcl_artifacts.write_project_info(
+                    root,
+                    assemblies_out,
+                    snapshots_out,
+                    entrypoint="assembly.kcl",
+                    parameters_filename="inputs.kcl",
+                )
 
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8"),
@@ -327,6 +331,33 @@ class KclArtifactsTests(unittest.TestCase):
                 snapshots_out.read_text(encoding="utf-8").splitlines(),
                 ["assembly-parameters.kcl", "assembly.kcl"],
             )
+            self.assertEqual(stderr.getvalue(), "")
+
+    def test_project_info_warns_for_missing_parameters_when_overrides_are_supplied(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "assembly.kcl").write_text("", encoding="utf-8")
+            write_metadata(root / "metadata.json")
+            assemblies_out = root / "assemblies.tsv"
+            snapshots_out = root / "snapshots.list"
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                kcl_artifacts.write_project_info(
+                    root,
+                    assemblies_out,
+                    snapshots_out,
+                    entrypoint="assembly.kcl",
+                    parameters_json=json.dumps({"width": 24}),
+                )
+
+            self.assertEqual(
+                assemblies_out.read_text(encoding="utf-8"),
+                "root\tassembly.kcl\t-\tmetadata.json\n",
+            )
+            self.assertIn("parameters file was not found", stderr.getvalue())
 
     def test_project_info_can_use_custom_metadata_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -426,11 +457,13 @@ class KclArtifactsTests(unittest.TestCase):
             assemblies_out = root / "assemblies.tsv"
             snapshots_out = root / "snapshots.list"
 
-            kcl_artifacts.write_project_info(
-                root,
-                assemblies_out,
-                snapshots_out,
-            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                kcl_artifacts.write_project_info(
+                    root,
+                    assemblies_out,
+                    snapshots_out,
+                )
 
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8").splitlines(),
@@ -439,6 +472,7 @@ class KclArtifactsTests(unittest.TestCase):
                     "nested\tnested/main.kcl\t-\tnested/metadata.json",
                 ],
             )
+            self.assertEqual(stderr.getvalue(), "")
 
     def test_project_info_allows_missing_metadata_next_to_main_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

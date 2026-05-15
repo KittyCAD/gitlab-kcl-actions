@@ -200,6 +200,7 @@ def parameters_file_for_entrypoint(
     repo_root: Path,
     main_kcl: Path,
     parameters_filename: str,
+    warn_if_missing: bool,
 ) -> Path | None:
     if parameters_filename == DEFAULT_PARAMETERS_FILENAME:
         candidates = default_sibling_candidates(main_kcl, parameters_filename)
@@ -207,7 +208,7 @@ def parameters_file_for_entrypoint(
         candidates = [main_kcl.parent / parameters_filename]
 
     parameters_file = first_existing_file(candidates)
-    if parameters_file is None:
+    if parameters_file is None and warn_if_missing:
         warn(
             f"parameters file was not found for "
             f"{relative_posix(main_kcl, repo_root)}; tried "
@@ -468,11 +469,13 @@ def write_project_info(
     entrypoint: str = DEFAULT_ENTRYPOINT,
     parameters_filename: str = DEFAULT_PARAMETERS_FILENAME,
     metadata_path: str = DEFAULT_METADATA_PATH,
+    parameters_json: str = "{}",
 ) -> None:
     repo_root = repo_root.resolve()
     entrypoint = normalize_entrypoint_path(entrypoint, "entrypoint")
     parameters_filename = normalize_parameters_filename(parameters_filename)
     metadata_path = normalize_metadata_path(metadata_path)
+    parameters_overrides = load_json_object(parameters_json, "parameters_json")
     selected_paths = load_entrypoint_paths(main_kcl_paths_json, "main_kcl_paths")
 
     all_main_files = find_entrypoint_files(repo_root, entrypoint)
@@ -515,6 +518,7 @@ def write_project_info(
             repo_root,
             main_kcl,
             parameters_filename,
+            warn_if_missing=bool(parameters_overrides),
         )
         metadata_json = metadata_file_for_entrypoint(repo_root, main_kcl, metadata_path)
         if metadata_json is not None:
@@ -813,6 +817,7 @@ def build_parser() -> argparse.ArgumentParser:
     info_parser.add_argument("--entrypoint", default=DEFAULT_ENTRYPOINT)
     info_parser.add_argument("--parameters-filename", default=DEFAULT_PARAMETERS_FILENAME)
     info_parser.add_argument("--metadata-path", default=DEFAULT_METADATA_PATH)
+    info_parser.add_argument("--parameters-json", default="{}")
 
     metadata_parser = subparsers.add_parser("metadata-env")
     metadata_parser.add_argument("--metadata-file", required=True, type=Path)
@@ -862,6 +867,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.entrypoint,
                 args.parameters_filename,
                 args.metadata_path,
+                args.parameters_json,
             )
         elif args.command == "metadata-env":
             write_metadata_env(args.metadata_file, args.env_out)
