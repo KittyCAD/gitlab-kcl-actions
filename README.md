@@ -243,24 +243,30 @@ Consuming repositories must contain:
 
 - one or more KCL entrypoint files. By default these are named `main.kcl`, but
   the `entrypoint` input can point at a different filename or path.
-- a sibling parameters file next to every entrypoint file. By default this is
-  named `parameters.kcl`; for non-`main.kcl` entrypoints the workflow also tries
-  `{entrypoint_stem}-parameters.kcl` and `{entrypoint_stem}_parameters.kcl`.
-  `parameters_filename` can point at another exact bare `.kcl` filename.
-- a metadata JSON file. By default this is sibling `metadata.json`; for
-  non-`main.kcl` entrypoints the workflow also tries
+- optionally, a sibling parameters file next to each entrypoint file. By
+  default this is named `parameters.kcl`; for non-`main.kcl` entrypoints the
+  workflow also tries `{entrypoint_stem}-parameters.kcl` and
+  `{entrypoint_stem}_parameters.kcl`. `parameters_filename` can point at
+  another exact bare `.kcl` filename.
+- optionally, a metadata JSON file. By default this is sibling `metadata.json`;
+  for non-`main.kcl` entrypoints the workflow also tries
   `{entrypoint_stem}-metadata.json` and `{entrypoint_stem}_metadata.json`.
   `metadata_path` can point at another exact bare filename next to each
   entrypoint or one shared repo-relative `.json` path.
 
-Missing entrypoint files, missing sibling parameters files, duplicate assembly
-IDs, and missing or invalid metadata JSON files are hard failures.
+Missing entrypoint files and duplicate assembly IDs are hard failures. Missing
+parameters files are warnings unless `parameters_json` references a value that is
+not exported by any selected parameters file. Missing metadata files are
+warnings; the workflow still writes STEP, glTF, and snapshot artifacts but skips
+physics analysis and bounding-box JSON for that assembly. Invalid metadata JSON
+is still a hard failure when the file exists.
 
 #### Parameters file
 
 The `parameters_json` input replaces existing exported top-level assignments in
-each discovered sibling parameters file. It does not add new parameters and it
-does not replace non-exported local values. The default filename is
+each discovered sibling parameters file. Assemblies without a parameters file
+are left alone. It does not add new parameters and it does not replace
+non-exported local values. The default filename is
 `parameters.kcl`, with the same non-`main.kcl` entrypoint-stem fallback described
 above.
 
@@ -321,9 +327,10 @@ top-level parameters and model files use `import * from "parameters.kcl"`.
 #### Metadata JSON
 
 The metadata JSON provides the physics arguments for each entrypoint's
-`zoo kcl analyze` and derived bounding-box artifact. By default,
-`metadata.json` lives next to each entrypoint file: root `main.kcl` uses the
-root `metadata.json`, and `assembly-2/main.kcl` uses
+`zoo kcl analyze` and derived bounding-box artifact. If no metadata file exists
+for an assembly, the job warns and skips those physics artifacts for that
+assembly. By default, `metadata.json` lives next to each entrypoint file: root
+`main.kcl` uses the root `metadata.json`, and `assembly-2/main.kcl` uses
 `assembly-2/metadata.json`. For non-`main.kcl` entrypoints, the default lookup
 also tries the entrypoint stem variants, for example `assembly-metadata.json`
 and `assembly_metadata.json`. Set `metadata_path` to a bare filename to use that
@@ -343,9 +350,9 @@ assembly use one shared metadata file.
 }
 ```
 
-All fields are required. `material_density` must be a finite number. The unit
-fields must be non-empty strings. The workflow does not guess density, units,
-or material data.
+When the metadata file exists, all fields are required. `material_density` must
+be a finite number. The unit fields must be non-empty strings. The workflow does
+not guess density, units, or material data.
 
 #### Physics JSON
 
@@ -437,16 +444,17 @@ kcl-artifacts/
   manifest.json
 ```
 
-Each entrypoint file gets STEP, glTF, physics analysis, bounding box, and a
-four-ways assembly snapshot preview under
-`kcl-artifacts/assemblies/<assembly-id>/`. The root entrypoint uses `root` as
-its assembly ID. Nested entrypoints use their directory path relative to the
-repo, so `assembly-2/main.kcl` writes under `assemblies/assembly-2/`.
+Each entrypoint file gets STEP, glTF, and a four-ways assembly snapshot preview
+under `kcl-artifacts/assemblies/<assembly-id>/`. The root entrypoint uses
+`root` as its assembly ID. Nested entrypoints use their directory path relative
+to the repo, so `assembly-2/main.kcl` writes under `assemblies/assembly-2/`.
 Assembly-level artifact names use the entrypoint filename without `.kcl`: for
 `main.kcl`, the files are `main.step`, `main.gltf`, `main-analysis.json`,
 `main-bounding-box.json`, and `main-snapshot.png`; for `assembly.kcl`, they are
 `assembly.step`, `assembly.gltf`, `assembly-analysis.json`,
-`assembly-bounding-box.json`, and `assembly-snapshot.png`.
+`assembly-bounding-box.json`, and `assembly-snapshot.png`. The analysis and
+bounding-box files are only present when metadata JSON was available for that
+assembly.
 
 Per-file snapshots are generated for every `.kcl` file except the configured
 parameters filename, preserving the source path under `kcl-artifacts/snapshots/`
@@ -454,7 +462,8 @@ and adding a view suffix. The default scheme is
 `<source-without-.kcl>.<view>.png`, with `isometric`, `front`, `top`, and
 `right` views. The source `.kcl` files used for those snapshots are copied under
 `kcl-artifacts/source/` with the same relative paths. Each selected assembly's
-sibling parameters file and configured metadata JSON file are copied there too.
+sibling parameters file and configured metadata JSON file are copied there too
+when present.
 Assembly artifacts, source copies, and per-file snapshots are limited to the
 selected assembly directories, whether they were selected by `main_kcl_paths` or
 by changed-file detection.
