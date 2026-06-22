@@ -13,7 +13,6 @@ main_kcl_paths="${KCL_MAIN_KCL_PATHS:-}"
 if [[ -z "$main_kcl_paths" ]]; then
   main_kcl_paths="[]"
 fi
-entrypoint="${KCL_ENTRYPOINT:-main.kcl}"
 parameters_filename="${KCL_PARAMETERS_FILENAME:-parameters.kcl}"
 metadata_path="${KCL_METADATA_PATH:-metadata.json}"
 host="${KCL_ZOO_HOST:-}"
@@ -130,14 +129,13 @@ python3 "$python_helper" project-info \
   --assemblies-out "$state_dir/assemblies.tsv" \
   --snapshots-out "$state_dir/snapshots.list" \
   --main-kcl-paths "$main_kcl_paths" \
-  --entrypoint "$entrypoint" \
   --parameters-filename "$parameters_filename" \
   --metadata-path "$metadata_path" \
   --parameters-json "$parameters_json" \
   "${changed_files_args[@]}"
 
 if [[ ! -s "$state_dir/assemblies.tsv" ]]; then
-  echo "No changed KCL assembly directories found; nothing to do."
+  echo "No KCL files to process; nothing to do."
   exit 0
 fi
 
@@ -365,12 +363,10 @@ process_assembly() {
   local assembly_id="$2"
   local main_kcl="$3"
   local metadata_json="$4"
-  local assembly_dir="$artifact_dir/assemblies/$assembly_id"
+  local artifact_base="$artifact_dir/assemblies/$assembly_id"
   local metadata_env=""
   local analysis_file=""
   local bounding_box_analysis_file=""
-  local entrypoint_filename
-  local entrypoint_stem
   local lint_pid
   local analysis_pid=""
   local bounding_box_analysis_pid=""
@@ -379,10 +375,7 @@ process_assembly() {
   local snapshot_pid
   local failure_status=0
 
-  mkdir -p "$assembly_dir"
-
-  entrypoint_filename="${main_kcl##*/}"
-  entrypoint_stem="${entrypoint_filename%.kcl}"
+  mkdir -p "$(dirname "$artifact_base")"
 
   if [[ "$metadata_json" == "-" ]]; then
     echo "warning: no metadata JSON for ${main_kcl}; skipping physics artifacts" >&2
@@ -400,7 +393,7 @@ process_assembly() {
   lint_pid="$!"
 
   if [[ "$metadata_json" != "-" ]]; then
-    analysis_file="$assembly_dir/${entrypoint_stem}-analysis.json"
+    analysis_file="${artifact_base}-analysis.json"
     write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT" &
     analysis_pid="$!"
 
@@ -417,7 +410,7 @@ process_assembly() {
     step \
     "$main_kcl" \
     "$state_dir/export-step-${assembly_index}" \
-    "$assembly_dir/${entrypoint_stem}.step" &
+    "${artifact_base}.step" &
   step_pid="$!"
 
   export_one \
@@ -425,7 +418,7 @@ process_assembly() {
     gltf \
     "$main_kcl" \
     "$state_dir/export-gltf-${assembly_index}" \
-    "$assembly_dir/${entrypoint_stem}.gltf" &
+    "${artifact_base}.gltf" &
   gltf_pid="$!"
 
   run_zoo "${zoo_cmd[@]}" kcl snapshot \
@@ -434,7 +427,7 @@ process_assembly() {
     --camera-style "$camera_style" \
     --camera-padding "$camera_padding" \
     "$main_kcl" \
-    "$assembly_dir/${entrypoint_stem}-snapshot.png" &
+    "${artifact_base}-snapshot.png" &
   snapshot_pid="$!"
 
   record_assembly_command_status "$lint_pid" "lint ${main_kcl}"
@@ -457,7 +450,7 @@ process_assembly() {
   if [[ "$metadata_json" != "-" ]]; then
     python3 "$python_helper" bounding-box-json \
       --analysis-file "$bounding_box_analysis_file" \
-      --output-file "$assembly_dir/${entrypoint_stem}-bounding-box.json" \
+      --output-file "${artifact_base}-bounding-box.json" \
       --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
   fi
 }

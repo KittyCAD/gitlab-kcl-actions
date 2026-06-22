@@ -90,16 +90,13 @@ def render_kcl_artifacts() -> str:
       description: "JSON object of values to replace in sibling parameters.kcl files before running Zoo."
     main_kcl_paths:
       default: "[]"
-      description: "Optional bare path, JSON string, or JSON array of KCL entrypoint paths. Empty processes changed assemblies only."
-    entrypoint:
-      default: main.kcl
-      description: "KCL entrypoint filename or repo-relative path to discover when main_kcl_paths is empty."
+      description: "Optional bare path, JSON string, or JSON array of .kcl file paths to process. Empty processes changed .kcl files only."
     parameters_filename:
       default: parameters.kcl
-      description: "Sibling KCL parameters filename. The default also tries entrypoint-stem variants for non-main entrypoints."
+      description: "Parameters .kcl filename shared by every .kcl file in the same folder. Excluded from STEP/glTF output."
     metadata_path:
       default: metadata.json
-      description: "Metadata JSON filename, default entrypoint-stem variants, or one repo-relative metadata JSON path."
+      description: "Metadata JSON filename next to each .kcl file, or one repo-relative metadata JSON path."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."
@@ -120,7 +117,7 @@ def render_kcl_artifacts() -> str:
         - right-side
         - four-ways
         - iso
-      description: "Camera angle used for the assembly-level entrypoint snapshot preview."
+      description: "Camera angle used for the per-file assembly snapshot preview."
     snapshot_views:
       default: iso,front,top,right-side
       description: "Comma-separated camera angles used for per-file snapshot view PNGs."
@@ -171,7 +168,6 @@ def render_kcl_artifacts() -> str:
       $[[ inputs.parameters_json ]]
     KCL_MAIN_KCL_PATHS: |-
       $[[ inputs.main_kcl_paths ]]
-    KCL_ENTRYPOINT: '$[[ inputs.entrypoint ]]'
     KCL_PARAMETERS_FILENAME: '$[[ inputs.parameters_filename ]]'
     KCL_METADATA_PATH: '$[[ inputs.metadata_path ]]'
     KCL_ZOO_HOST: '$[[ inputs.host ]]'

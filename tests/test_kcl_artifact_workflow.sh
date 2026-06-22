@@ -21,27 +21,27 @@ cp -R "$repo_root/tests/fixtures/basic/." "$project/"
 
 (
   cd "$project"
-  KCL_MAIN_KCL_PATHS='["main.kcl","assembly-2/main.kcl"]' \
+  KCL_MAIN_KCL_PATHS='["main.kcl","part.kcl","assembly-2/main.kcl","assembly-2/part.kcl"]' \
     KCL_PARAMETERS_JSON='{"width": 24, "depth": 6}' \
     "$repo_root/scripts/run-kcl-artifacts.sh"
 )
 
-test -s "$project/kcl-artifacts/assemblies/root/main.step"
-test -s "$project/kcl-artifacts/assemblies/root/main.gltf"
-test -s "$project/kcl-artifacts/assemblies/root/main-analysis.json"
-test -s "$project/kcl-artifacts/assemblies/root/main-bounding-box.json"
-test -s "$project/kcl-artifacts/assemblies/root/main-snapshot.png"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main.step"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main.gltf"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main-analysis.json"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main-bounding-box.json"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main-snapshot.png"
-for view in isometric front top right; do
-  test -s "$project/kcl-artifacts/snapshots/main.${view}.png"
-  test -s "$project/kcl-artifacts/snapshots/part.${view}.png"
-  test -s "$project/kcl-artifacts/snapshots/assembly-2/main.${view}.png"
-  test -s "$project/kcl-artifacts/snapshots/assembly-2/part.${view}.png"
+# Every .kcl file is its own assembly and gets a STEP, glTF, snapshot, and
+# physics artifacts, regardless of which folder it lives in.
+for assembly in main part assembly-2/main assembly-2/part; do
+  test -s "$project/kcl-artifacts/assemblies/${assembly}.step"
+  test -s "$project/kcl-artifacts/assemblies/${assembly}.gltf"
+  test -s "$project/kcl-artifacts/assemblies/${assembly}-analysis.json"
+  test -s "$project/kcl-artifacts/assemblies/${assembly}-bounding-box.json"
+  test -s "$project/kcl-artifacts/assemblies/${assembly}-snapshot.png"
 done
+
+for source in main part assembly-2/main assembly-2/part; do
+  for view in isometric front top right; do
+    test -s "$project/kcl-artifacts/snapshots/${source}.${view}.png"
+  done
+done
+
 test -s "$project/kcl-artifacts/source/main.kcl"
 test -s "$project/kcl-artifacts/source/metadata.json"
 test -s "$project/kcl-artifacts/source/part.kcl"
@@ -64,49 +64,68 @@ manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert manifest["parameters_override_keys"] == ["depth", "width"]
 assert manifest["assemblies"] == [
     {
-        "id": "root",
+        "id": "main",
         "main_kcl": "main.kcl",
         "metadata_json": "metadata.json",
         "parameters_kcl": "parameters.kcl",
     },
     {
-        "id": "assembly-2",
+        "id": "part",
+        "main_kcl": "part.kcl",
+        "metadata_json": "metadata.json",
+        "parameters_kcl": "parameters.kcl",
+    },
+    {
+        "id": "assembly-2/main",
         "main_kcl": "assembly-2/main.kcl",
+        "metadata_json": "assembly-2/metadata.json",
+        "parameters_kcl": "assembly-2/parameters.kcl",
+    },
+    {
+        "id": "assembly-2/part",
+        "main_kcl": "assembly-2/part.kcl",
         "metadata_json": "assembly-2/metadata.json",
         "parameters_kcl": "assembly-2/parameters.kcl",
     },
 ]
 artifacts = set(manifest["artifacts"])
-expected = {
-    "assemblies/root/main-analysis.json",
-    "assemblies/root/main-bounding-box.json",
-    "assemblies/root/main.gltf",
-    "assemblies/root/main.step",
-    "assemblies/root/main-snapshot.png",
-    "assemblies/assembly-2/main-analysis.json",
-    "assemblies/assembly-2/main-bounding-box.json",
-    "assemblies/assembly-2/main.gltf",
-    "assemblies/assembly-2/main.step",
-    "assemblies/assembly-2/main-snapshot.png",
-    "source/main.kcl",
-    "source/metadata.json",
-    "source/part.kcl",
-    "source/parameters.kcl",
-    "source/assembly-2/main.kcl",
-    "source/assembly-2/metadata.json",
-    "source/assembly-2/part.kcl",
-    "source/assembly-2/parameters.kcl",
-}
+expected = {"parameters.json"}
+for assembly in ("main", "part", "assembly-2/main", "assembly-2/part"):
+    expected.update(
+        {
+            f"assemblies/{assembly}-analysis.json",
+            f"assemblies/{assembly}-bounding-box.json",
+            f"assemblies/{assembly}.gltf",
+            f"assemblies/{assembly}.step",
+            f"assemblies/{assembly}-snapshot.png",
+        }
+    )
 for source in ("main", "part", "assembly-2/main", "assembly-2/part"):
     for view in ("isometric", "front", "top", "right"):
         expected.add(f"snapshots/{source}.{view}.png")
+for source in (
+    "main.kcl",
+    "metadata.json",
+    "part.kcl",
+    "parameters.kcl",
+    "assembly-2/main.kcl",
+    "assembly-2/metadata.json",
+    "assembly-2/part.kcl",
+    "assembly-2/parameters.kcl",
+):
+    expected.add(f"source/{source}")
 missing = expected - artifacts
 if missing:
     raise SystemExit(f"manifest missing artifacts: {sorted(missing)}")
 
-for assembly, bounding_box_unit in (("root", "mm"), ("assembly-2", "cm")):
+for assembly, bounding_box_unit in (
+    ("main", "mm"),
+    ("part", "mm"),
+    ("assembly-2/main", "cm"),
+    ("assembly-2/part", "cm"),
+):
     analysis = json.loads(
-        (artifact_root / "assemblies" / assembly / "main-analysis.json").read_text(
+        (artifact_root / "assemblies" / f"{assembly}-analysis.json").read_text(
             encoding="utf-8"
         )
     )
@@ -118,7 +137,7 @@ for assembly, bounding_box_unit in (("root", "mm"), ("assembly-2", "cm")):
     assert sorted(analysis["bounding_box"]) == ["center", "dimensions"]
 
     bounding_box = json.loads(
-        (artifact_root / "assemblies" / assembly / "main-bounding-box.json").read_text(
+        (artifact_root / "assemblies" / f"{assembly}-bounding-box.json").read_text(
             encoding="utf-8"
         )
     )
