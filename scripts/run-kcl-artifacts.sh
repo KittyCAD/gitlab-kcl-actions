@@ -216,12 +216,12 @@ write_zoo_output() {
 
 background_pids=()
 background_names=()
+background_failures=0
 
 finish_background_job() {
   local pid="${background_pids[0]}"
   local name="${background_names[0]}"
   local status=0
-  local remaining_pid
 
   background_pids=("${background_pids[@]:1}")
   background_names=("${background_names[@]:1}")
@@ -234,14 +234,11 @@ finish_background_job() {
     return 0
   fi
 
-  echo "error: background task failed with status ${status}: ${name}" >&2
-  for remaining_pid in "${background_pids[@]}"; do
-    kill "$remaining_pid" 2>/dev/null || true
-  done
-  for remaining_pid in "${background_pids[@]}"; do
-    wait "$remaining_pid" 2>/dev/null || true
-  done
-  exit "$status"
+  # A single task failing (for example a KCL file with no exportable geometry)
+  # must not fail the whole job. Warn, count it, and keep going.
+  echo "warning: background task did not complete: ${name} (status ${status}); continuing" >&2
+  background_failures=$((background_failures + 1))
+  return 0
 }
 
 run_background() {
@@ -444,7 +441,18 @@ process_assembly() {
   record_assembly_command_status "$snapshot_pid" "snapshot ${main_kcl}"
 
   if [[ "$failure_status" -ne 0 ]]; then
-    return "$failure_status"
+    # The file could not be turned into artifacts. There are several valid
+    # reasons for this (no exportable geometry, a file that is only meant to be
+    # imported, etc.), so skip it with a warning instead of failing the job.
+    echo "warning: ${main_kcl} produced no artifacts (it may have no exportable geometry); skipping it without failing the job" >&2
+    rm -f \
+      "${artifact_base}.step" \
+      "${artifact_base}.gltf" \
+      "${artifact_base}-analysis.json" \
+      "${artifact_base}-bounding-box.json" \
+      "${artifact_base}-snapshot.png"
+    : > "${state_dir}/skipped/${assembly_index}"
+    return 0
   fi
 
   if [[ "$metadata_json" != "-" ]]; then
@@ -454,6 +462,8 @@ process_assembly() {
       --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
   fi
 }
+
+mkdir -p "$state_dir/skipped"
 
 assembly_index=0
 while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
@@ -509,3 +519,11 @@ python3 "$python_helper" write-manifest \
   --zoo-version "$zoo_version" \
   --host "$host" \
   --parameters-json "$parameters_json"
+
+skipped_count="$(find "$state_dir/skipped" -type f 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$skipped_count" -gt 0 ]]; then
+  echo "warning: ${skipped_count} KCL file(s) produced no artifacts and were skipped" >&2
+fi
+if [[ "$background_failures" -gt 0 ]]; then
+  echo "warning: ${background_failures} background task(s) reported errors and were skipped" >&2
+fi

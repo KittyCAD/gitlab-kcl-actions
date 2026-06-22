@@ -246,6 +246,15 @@ warnings; the workflow still writes STEP, glTF, and snapshot artifacts but skips
 physics analysis and bounding-box JSON for that file. Invalid metadata JSON is
 still a hard failure when the file exists.
 
+A `.kcl` file that fails to produce artifacts never fails the job. There are
+several valid reasons a file might not export geometry (an empty file, a module
+that is only meant to be imported, a file that intentionally renders nothing), so
+the workflow warns, removes any partial output for that file, and continues with
+the remaining files. The skipped file still appears in the manifest's
+`assemblies` list and its source is copied to `source/`, but it contributes no
+`assemblies/<id>.*` artifacts. The job logs a summary of how many files were
+skipped at the end.
+
 #### Changed-file selection
 
 When `main_kcl_paths` is empty, the workflow uses Git to find changed files and

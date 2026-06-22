@@ -21,7 +21,9 @@ cp -R "$repo_root/tests/fixtures/basic/." "$project/"
 
 (
   cd "$project"
-  KCL_MAIN_KCL_PATHS='["main.kcl","part.kcl","assembly-2/main.kcl","assembly-2/part.kcl"]' \
+  # empty.kcl has no exportable geometry. Including it proves that a file which
+  # cannot produce artifacts only warns and is skipped, without failing the job.
+  KCL_MAIN_KCL_PATHS='["main.kcl","part.kcl","assembly-2/main.kcl","assembly-2/part.kcl","empty.kcl"]' \
     KCL_PARAMETERS_JSON='{"width": 24, "depth": 6}' \
     "$repo_root/scripts/run-kcl-artifacts.sh"
 )
@@ -41,6 +43,23 @@ for source in main part assembly-2/main assembly-2/part; do
     test -s "$project/kcl-artifacts/snapshots/${source}.${view}.png"
   done
 done
+
+# empty.kcl could not be exported, so its assembly artifacts must be absent even
+# though the job succeeded.
+for empty_artifact in \
+  "assemblies/empty.step" \
+  "assemblies/empty.gltf" \
+  "assemblies/empty-analysis.json" \
+  "assemblies/empty-bounding-box.json" \
+  "assemblies/empty-snapshot.png"; do
+  if [[ -e "$project/kcl-artifacts/${empty_artifact}" ]]; then
+    echo "error: empty.kcl should not have produced ${empty_artifact}" >&2
+    exit 1
+  fi
+done
+
+# Its source is still copied so reviewers can see the skipped input.
+test -s "$project/kcl-artifacts/source/empty.kcl"
 
 test -s "$project/kcl-artifacts/source/main.kcl"
 test -s "$project/kcl-artifacts/source/metadata.json"
@@ -87,6 +106,12 @@ assert manifest["assemblies"] == [
         "metadata_json": "assembly-2/metadata.json",
         "parameters_kcl": "assembly-2/parameters.kcl",
     },
+    {
+        "id": "empty",
+        "main_kcl": "empty.kcl",
+        "metadata_json": "metadata.json",
+        "parameters_kcl": "parameters.kcl",
+    },
 ]
 artifacts = set(manifest["artifacts"])
 expected = {"parameters.json"}
@@ -108,6 +133,7 @@ for source in (
     "metadata.json",
     "part.kcl",
     "parameters.kcl",
+    "empty.kcl",
     "assembly-2/main.kcl",
     "assembly-2/metadata.json",
     "assembly-2/part.kcl",
@@ -117,6 +143,19 @@ for source in (
 missing = expected - artifacts
 if missing:
     raise SystemExit(f"manifest missing artifacts: {sorted(missing)}")
+
+# empty.kcl yields no exportable geometry, so it must not contribute any
+# assembly artifacts even though it is listed as an assembly.
+forbidden = {
+    "assemblies/empty.step",
+    "assemblies/empty.gltf",
+    "assemblies/empty-analysis.json",
+    "assemblies/empty-bounding-box.json",
+    "assemblies/empty-snapshot.png",
+}
+present = forbidden & artifacts
+if present:
+    raise SystemExit(f"manifest unexpectedly lists skipped artifacts: {sorted(present)}")
 
 for assembly, bounding_box_unit in (
     ("main", "mm"),
