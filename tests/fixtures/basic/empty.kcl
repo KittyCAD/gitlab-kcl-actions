@@ -1,0 +1,2 @@
+// Intentionally has no exportable geometry.
+// The workflow should warn and skip this file without failing the job.

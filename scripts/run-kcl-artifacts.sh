@@ -13,15 +13,10 @@ main_kcl_paths="${KCL_MAIN_KCL_PATHS:-}"
 if [[ -z "$main_kcl_paths" ]]; then
   main_kcl_paths="[]"
 fi
-entrypoint="${KCL_ENTRYPOINT:-main.kcl}"
 parameters_filename="${KCL_PARAMETERS_FILENAME:-parameters.kcl}"
 metadata_path="${KCL_METADATA_PATH:-metadata.json}"
 host="${KCL_ZOO_HOST:-}"
 snapshot_angle="${KCL_SNAPSHOT_ANGLE:-four-ways}"
-snapshot_views="${KCL_SNAPSHOT_VIEWS:-iso,front,top,right-side}"
-if [[ -z "$snapshot_views" ]]; then
-  snapshot_views="iso,front,top,right-side"
-fi
 camera_style="${KCL_CAMERA_STYLE:-ortho}"
 camera_padding="${KCL_CAMERA_PADDING:-0.1}"
 zoo_attempts="${KCL_ZOO_ATTEMPTS:-4}"
@@ -121,23 +116,21 @@ tar \
   --exclude='./kcl-artifacts' \
   -cf - . | tar -C "$workspace" -xf -
 rm -rf "$artifact_dir"
-mkdir -p "$artifact_dir/assemblies" "$artifact_dir/snapshots" "$artifact_dir/source"
+mkdir -p "$artifact_dir"
 
 cd "$workspace"
 
 python3 "$python_helper" project-info \
   --repo-root "$workspace" \
   --assemblies-out "$state_dir/assemblies.tsv" \
-  --snapshots-out "$state_dir/snapshots.list" \
   --main-kcl-paths "$main_kcl_paths" \
-  --entrypoint "$entrypoint" \
   --parameters-filename "$parameters_filename" \
   --metadata-path "$metadata_path" \
   --parameters-json "$parameters_json" \
   "${changed_files_args[@]}"
 
 if [[ ! -s "$state_dir/assemblies.tsv" ]]; then
-  echo "No changed KCL assembly directories found; nothing to do."
+  echo "No KCL files to process; nothing to do."
   exit 0
 fi
 
@@ -218,12 +211,12 @@ write_zoo_output() {
 
 background_pids=()
 background_names=()
+background_failures=0
 
 finish_background_job() {
   local pid="${background_pids[0]}"
   local name="${background_names[0]}"
   local status=0
-  local remaining_pid
 
   background_pids=("${background_pids[@]:1}")
   background_names=("${background_names[@]:1}")
@@ -236,14 +229,11 @@ finish_background_job() {
     return 0
   fi
 
-  echo "error: background task failed with status ${status}: ${name}" >&2
-  for remaining_pid in "${background_pids[@]}"; do
-    kill "$remaining_pid" 2>/dev/null || true
-  done
-  for remaining_pid in "${background_pids[@]}"; do
-    wait "$remaining_pid" 2>/dev/null || true
-  done
-  exit "$status"
+  # A single task failing (for example a KCL file with no exportable geometry)
+  # must not fail the whole job. Warn, count it, and keep going.
+  echo "warning: background task did not complete: ${name} (status ${status}); continuing" >&2
+  background_failures=$((background_failures + 1))
+  return 0
 }
 
 run_background() {
@@ -297,23 +287,6 @@ record_assembly_command_status() {
   fi
 }
 
-snapshot_view_slug() {
-  case "$1" in
-    iso)
-      printf '%s\n' "isometric"
-      ;;
-    right-side)
-      printf '%s\n' "right"
-      ;;
-    four-ways)
-      printf '%s\n' "four-ways"
-      ;;
-    *)
-      printf '%s\n' "$1" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//;s/-$//'
-      ;;
-  esac
-}
-
 export_one() {
   local format="$1"
   local extension="$2"
@@ -365,12 +338,10 @@ process_assembly() {
   local assembly_id="$2"
   local main_kcl="$3"
   local metadata_json="$4"
-  local assembly_dir="$artifact_dir/assemblies/$assembly_id"
+  local artifact_base="$artifact_dir/$assembly_id"
   local metadata_env=""
   local analysis_file=""
   local bounding_box_analysis_file=""
-  local entrypoint_filename
-  local entrypoint_stem
   local lint_pid
   local analysis_pid=""
   local bounding_box_analysis_pid=""
@@ -379,10 +350,7 @@ process_assembly() {
   local snapshot_pid
   local failure_status=0
 
-  mkdir -p "$assembly_dir"
-
-  entrypoint_filename="${main_kcl##*/}"
-  entrypoint_stem="${entrypoint_filename%.kcl}"
+  mkdir -p "$(dirname "$artifact_base")"
 
   if [[ "$metadata_json" == "-" ]]; then
     echo "warning: no metadata JSON for ${main_kcl}; skipping physics artifacts" >&2
@@ -400,7 +368,7 @@ process_assembly() {
   lint_pid="$!"
 
   if [[ "$metadata_json" != "-" ]]; then
-    analysis_file="$assembly_dir/${entrypoint_stem}-analysis.json"
+    analysis_file="${artifact_base}-analysis.json"
     write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT" &
     analysis_pid="$!"
 
@@ -417,7 +385,7 @@ process_assembly() {
     step \
     "$main_kcl" \
     "$state_dir/export-step-${assembly_index}" \
-    "$assembly_dir/${entrypoint_stem}.step" &
+    "${artifact_base}.step" &
   step_pid="$!"
 
   export_one \
@@ -425,7 +393,7 @@ process_assembly() {
     gltf \
     "$main_kcl" \
     "$state_dir/export-gltf-${assembly_index}" \
-    "$assembly_dir/${entrypoint_stem}.gltf" &
+    "${artifact_base}.gltf" &
   gltf_pid="$!"
 
   run_zoo "${zoo_cmd[@]}" kcl snapshot \
@@ -434,7 +402,7 @@ process_assembly() {
     --camera-style "$camera_style" \
     --camera-padding "$camera_padding" \
     "$main_kcl" \
-    "$assembly_dir/${entrypoint_stem}-snapshot.png" &
+    "${artifact_base}-snapshot.png" &
   snapshot_pid="$!"
 
   record_assembly_command_status "$lint_pid" "lint ${main_kcl}"
@@ -451,16 +419,29 @@ process_assembly() {
   record_assembly_command_status "$snapshot_pid" "snapshot ${main_kcl}"
 
   if [[ "$failure_status" -ne 0 ]]; then
-    return "$failure_status"
+    # The file could not be turned into artifacts. There are several valid
+    # reasons for this (no exportable geometry, a file that is only meant to be
+    # imported, etc.), so skip it with a warning instead of failing the job.
+    echo "warning: ${main_kcl} produced no artifacts (it may have no exportable geometry); skipping it without failing the job" >&2
+    rm -f \
+      "${artifact_base}.step" \
+      "${artifact_base}.gltf" \
+      "${artifact_base}-analysis.json" \
+      "${artifact_base}-bounding-box.json" \
+      "${artifact_base}-snapshot.png"
+    : > "${state_dir}/skipped/${assembly_index}"
+    return 0
   fi
 
   if [[ "$metadata_json" != "-" ]]; then
     python3 "$python_helper" bounding-box-json \
       --analysis-file "$bounding_box_analysis_file" \
-      --output-file "$assembly_dir/${entrypoint_stem}-bounding-box.json" \
+      --output-file "${artifact_base}-bounding-box.json" \
       --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
   fi
 }
+
+mkdir -p "$state_dir/skipped"
 
 assembly_index=0
 while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
@@ -472,47 +453,17 @@ while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
 done < "$state_dir/assemblies.tsv"
 wait_for_background_jobs
 
-write_snapshot_view() {
-  local snapshot_input="$1"
-  local snapshot_view_angle="$2"
-  local snapshot_base="$artifact_dir/snapshots/${snapshot_input%.kcl}"
-  local snapshot_slug
-  local snapshot_output
-
-  snapshot_slug="$(snapshot_view_slug "$snapshot_view_angle")"
-  snapshot_output="${snapshot_base}.${snapshot_slug}.png"
-  mkdir -p "$(dirname "$snapshot_output")"
-  run_zoo "${zoo_cmd[@]}" kcl snapshot \
-    --output-format png \
-    --angle "$snapshot_view_angle" \
-    --camera-style "$camera_style" \
-    --camera-padding "$camera_padding" \
-    "$snapshot_input" \
-    "$snapshot_output"
-}
-
-IFS=',' read -r -a snapshot_view_angles <<< "$snapshot_views"
-while IFS= read -r snapshot_input; do
-  [[ -n "$snapshot_input" ]] || continue
-  for snapshot_view_angle in "${snapshot_view_angles[@]}"; do
-    snapshot_view_angle="${snapshot_view_angle//[[:space:]]/}"
-    [[ -n "$snapshot_view_angle" ]] || continue
-    run_background \
-      "snapshot ${snapshot_input} ${snapshot_view_angle}" \
-      write_snapshot_view "$snapshot_input" "$snapshot_view_angle"
-  done
-done < "$state_dir/snapshots.list"
-wait_for_background_jobs
-
-python3 "$python_helper" write-source-files \
-  --repo-root "$workspace" \
-  --snapshots-file "$state_dir/snapshots.list" \
-  --assemblies-file "$state_dir/assemblies.tsv" \
-  --output-dir "$artifact_dir/source"
-
 python3 "$python_helper" write-manifest \
   --artifact-dir "$artifact_dir" \
   --assemblies-file "$state_dir/assemblies.tsv" \
   --zoo-version "$zoo_version" \
   --host "$host" \
   --parameters-json "$parameters_json"
+
+skipped_count="$(find "$state_dir/skipped" -type f 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$skipped_count" -gt 0 ]]; then
+  echo "warning: ${skipped_count} KCL file(s) produced no artifacts and were skipped" >&2
+fi
+if [[ "$background_failures" -gt 0 ]]; then
+  echo "warning: ${background_failures} background task(s) reported errors and were skipped" >&2
+fi

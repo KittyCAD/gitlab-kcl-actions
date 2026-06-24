@@ -21,35 +21,52 @@ cp -R "$repo_root/tests/fixtures/basic/." "$project/"
 
 (
   cd "$project"
-  KCL_MAIN_KCL_PATHS='["main.kcl","assembly-2/main.kcl"]' \
+  # empty.kcl has no exportable geometry. Including it proves that a file which
+  # cannot produce artifacts only warns and is skipped, without failing the job.
+  KCL_MAIN_KCL_PATHS='["main.kcl","part.kcl","assembly-2/main.kcl","assembly-2/part.kcl","empty.kcl"]' \
     KCL_PARAMETERS_JSON='{"width": 24, "depth": 6}' \
     "$repo_root/scripts/run-kcl-artifacts.sh"
 )
 
-test -s "$project/kcl-artifacts/assemblies/root/main.step"
-test -s "$project/kcl-artifacts/assemblies/root/main.gltf"
-test -s "$project/kcl-artifacts/assemblies/root/main-analysis.json"
-test -s "$project/kcl-artifacts/assemblies/root/main-bounding-box.json"
-test -s "$project/kcl-artifacts/assemblies/root/main-snapshot.png"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main.step"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main.gltf"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main-analysis.json"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main-bounding-box.json"
-test -s "$project/kcl-artifacts/assemblies/assembly-2/main-snapshot.png"
-for view in isometric front top right; do
-  test -s "$project/kcl-artifacts/snapshots/main.${view}.png"
-  test -s "$project/kcl-artifacts/snapshots/part.${view}.png"
-  test -s "$project/kcl-artifacts/snapshots/assembly-2/main.${view}.png"
-  test -s "$project/kcl-artifacts/snapshots/assembly-2/part.${view}.png"
+# Every .kcl file is its own assembly. Its artifacts live directly under the
+# single kcl-artifacts/ folder, nested by the folder the .kcl file lives in
+# (root-level files like cube.kcl are loose). Each file gets one snapshot.
+for assembly in main part assembly-2/main assembly-2/part; do
+  test -s "$project/kcl-artifacts/${assembly}.step"
+  test -s "$project/kcl-artifacts/${assembly}.gltf"
+  test -s "$project/kcl-artifacts/${assembly}-analysis.json"
+  test -s "$project/kcl-artifacts/${assembly}-bounding-box.json"
+  test -s "$project/kcl-artifacts/${assembly}-snapshot.png"
 done
-test -s "$project/kcl-artifacts/source/main.kcl"
-test -s "$project/kcl-artifacts/source/metadata.json"
-test -s "$project/kcl-artifacts/source/part.kcl"
-test -s "$project/kcl-artifacts/source/parameters.kcl"
-test -s "$project/kcl-artifacts/source/assembly-2/main.kcl"
-test -s "$project/kcl-artifacts/source/assembly-2/metadata.json"
-test -s "$project/kcl-artifacts/source/assembly-2/part.kcl"
-test -s "$project/kcl-artifacts/source/assembly-2/parameters.kcl"
+
+# There is no source/ or snapshots/ folder anymore.
+if [[ -e "$project/kcl-artifacts/source" ]]; then
+  echo "error: kcl-artifacts/source should not exist" >&2
+  exit 1
+fi
+if [[ -e "$project/kcl-artifacts/snapshots" ]]; then
+  echo "error: kcl-artifacts/snapshots should not exist" >&2
+  exit 1
+fi
+if [[ -e "$project/kcl-artifacts/assemblies" ]]; then
+  echo "error: kcl-artifacts/assemblies should not exist" >&2
+  exit 1
+fi
+
+# empty.kcl could not be exported, so its artifacts must be absent even though
+# the job succeeded.
+for empty_artifact in \
+  "empty.step" \
+  "empty.gltf" \
+  "empty-analysis.json" \
+  "empty-bounding-box.json" \
+  "empty-snapshot.png"; do
+  if [[ -e "$project/kcl-artifacts/${empty_artifact}" ]]; then
+    echo "error: empty.kcl should not have produced ${empty_artifact}" >&2
+    exit 1
+  fi
+done
+
 test -s "$project/kcl-artifacts/manifest.json"
 
 grep -q 'export width = 20' "$project/parameters.kcl"
@@ -64,51 +81,73 @@ manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert manifest["parameters_override_keys"] == ["depth", "width"]
 assert manifest["assemblies"] == [
     {
-        "id": "root",
+        "id": "main",
         "main_kcl": "main.kcl",
         "metadata_json": "metadata.json",
         "parameters_kcl": "parameters.kcl",
     },
     {
-        "id": "assembly-2",
+        "id": "part",
+        "main_kcl": "part.kcl",
+        "metadata_json": "metadata.json",
+        "parameters_kcl": "parameters.kcl",
+    },
+    {
+        "id": "assembly-2/main",
         "main_kcl": "assembly-2/main.kcl",
         "metadata_json": "assembly-2/metadata.json",
         "parameters_kcl": "assembly-2/parameters.kcl",
     },
+    {
+        "id": "assembly-2/part",
+        "main_kcl": "assembly-2/part.kcl",
+        "metadata_json": "assembly-2/metadata.json",
+        "parameters_kcl": "assembly-2/parameters.kcl",
+    },
+    {
+        "id": "empty",
+        "main_kcl": "empty.kcl",
+        "metadata_json": "metadata.json",
+        "parameters_kcl": "parameters.kcl",
+    },
 ]
 artifacts = set(manifest["artifacts"])
-expected = {
-    "assemblies/root/main-analysis.json",
-    "assemblies/root/main-bounding-box.json",
-    "assemblies/root/main.gltf",
-    "assemblies/root/main.step",
-    "assemblies/root/main-snapshot.png",
-    "assemblies/assembly-2/main-analysis.json",
-    "assemblies/assembly-2/main-bounding-box.json",
-    "assemblies/assembly-2/main.gltf",
-    "assemblies/assembly-2/main.step",
-    "assemblies/assembly-2/main-snapshot.png",
-    "source/main.kcl",
-    "source/metadata.json",
-    "source/part.kcl",
-    "source/parameters.kcl",
-    "source/assembly-2/main.kcl",
-    "source/assembly-2/metadata.json",
-    "source/assembly-2/part.kcl",
-    "source/assembly-2/parameters.kcl",
-}
-for source in ("main", "part", "assembly-2/main", "assembly-2/part"):
-    for view in ("isometric", "front", "top", "right"):
-        expected.add(f"snapshots/{source}.{view}.png")
+expected = {"parameters.json"}
+for assembly in ("main", "part", "assembly-2/main", "assembly-2/part"):
+    expected.update(
+        {
+            f"{assembly}-analysis.json",
+            f"{assembly}-bounding-box.json",
+            f"{assembly}.gltf",
+            f"{assembly}.step",
+            f"{assembly}-snapshot.png",
+        }
+    )
 missing = expected - artifacts
 if missing:
     raise SystemExit(f"manifest missing artifacts: {sorted(missing)}")
 
-for assembly, bounding_box_unit in (("root", "mm"), ("assembly-2", "cm")):
+# empty.kcl yields no exportable geometry, so it must not contribute any
+# artifacts even though it is listed as an assembly.
+forbidden = {
+    "empty.step",
+    "empty.gltf",
+    "empty-analysis.json",
+    "empty-bounding-box.json",
+    "empty-snapshot.png",
+}
+present = forbidden & artifacts
+if present:
+    raise SystemExit(f"manifest unexpectedly lists skipped artifacts: {sorted(present)}")
+
+for assembly, bounding_box_unit in (
+    ("main", "mm"),
+    ("part", "mm"),
+    ("assembly-2/main", "cm"),
+    ("assembly-2/part", "cm"),
+):
     analysis = json.loads(
-        (artifact_root / "assemblies" / assembly / "main-analysis.json").read_text(
-            encoding="utf-8"
-        )
+        (artifact_root / f"{assembly}-analysis.json").read_text(encoding="utf-8")
     )
     assert analysis["mass"]["output_unit"] == "kg"
     assert analysis["volume"]["output_unit"] == "cm3"
@@ -118,9 +157,7 @@ for assembly, bounding_box_unit in (("root", "mm"), ("assembly-2", "cm")):
     assert sorted(analysis["bounding_box"]) == ["center", "dimensions"]
 
     bounding_box = json.loads(
-        (artifact_root / "assemblies" / assembly / "main-bounding-box.json").read_text(
-            encoding="utf-8"
-        )
+        (artifact_root / f"{assembly}-bounding-box.json").read_text(encoding="utf-8")
     )
     assert bounding_box["output_unit"] == bounding_box_unit
     assert sorted(bounding_box) == ["center", "dimensions", "output_unit"]

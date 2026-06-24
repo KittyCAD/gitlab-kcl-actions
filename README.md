@@ -87,53 +87,42 @@ include:
       parameters_json: '{"width": 24, "depth": 6}'
 ```
 
-Limit the workflow to one or more assembly entrypoints when the repo has
-multiple KCL entrypoint files:
+By default the workflow discovers **every** `.kcl` file in the repository and
+produces a STEP, glTF, snapshot, and physics artifacts for each one. Folders are
+not treated as projects: each `.kcl` file is its own assembly, identified by its
+repo-relative path without the `.kcl` extension (for example `cube`,
+`assembly-1/part1`, `chair/leg`).
+
+Limit the workflow to one or more specific `.kcl` files:
 
 ```yaml
 include:
   - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
     inputs:
-      main_kcl_paths: "assembly-2/main.kcl"
+      main_kcl_paths: "assembly-2/part.kcl"
       parameters_json: '{"width": 24}'
 ```
 
 `main_kcl_paths` accepts a bare relative path, a JSON string, or a JSON array of
-relative paths to `.kcl` entrypoint files. If it is empty, the workflow detects
-changed files with Git and processes only the assembly directories that contain
-or own those changes. If no changed file belongs to a directory with a matching
-entrypoint, the job exits successfully without producing artifacts.
+relative paths to `.kcl` files. If it is empty, the workflow detects changed
+files with Git and processes only the affected `.kcl` files (see Changed-file
+selection below). If nothing relevant changed, the job exits successfully
+without producing artifacts.
 
-Use `entrypoint` when a repo's KCL project uses a filename other than
-`main.kcl`:
-
-```yaml
-include:
-  - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
-    inputs:
-      entrypoint: assembly.kcl
-```
-
-`entrypoint` defaults to `main.kcl`. A bare filename discovers every matching
-file in the repo; a repo-relative path targets that one entrypoint when
-`main_kcl_paths` is empty.
-
-Use `parameters_filename` when each entrypoint's sibling parameter file uses a
-name other than `parameters.kcl`:
+Use `parameters_filename` when a repo's shared parameter file uses a name other
+than `parameters.kcl`:
 
 ```yaml
 include:
   - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
     inputs:
-      entrypoint: assembly.kcl
       parameters_filename: inputs.kcl
 ```
 
-`parameters_filename` defaults to `parameters.kcl`. It must be a bare `.kcl`
-filename. With that default, non-`main.kcl` entrypoints resolve support files in
-this order: `parameters.kcl`, `{entrypoint_stem}-parameters.kcl`,
-`{entrypoint_stem}_parameters.kcl`. If you set `parameters_filename`, only that
-exact filename is used.
+`parameters_filename` defaults to `parameters.kcl` and must be a bare `.kcl`
+filename. A file with that name is treated as a shared parameters file rather
+than an assembly: it is excluded from STEP/glTF output, and it applies to every
+other `.kcl` file in the same folder.
 
 Use `metadata_path` when the metadata file is not the default sibling
 `metadata.json`:
@@ -142,15 +131,12 @@ Use `metadata_path` when the metadata file is not the default sibling
 include:
   - component: $CI_SERVER_FQDN/my-group/gitlab-kcl-actions/kcl-artifacts@1.0.0
     inputs:
-      entrypoint: assembly.kcl
       metadata_path: config/kcl-metadata.json
 ```
 
-`metadata_path` defaults to `metadata.json`. With that default, non-`main.kcl`
-entrypoints resolve support files in this order: `metadata.json`,
-`{entrypoint_stem}-metadata.json`, `{entrypoint_stem}_metadata.json`. If you set
-`metadata_path` to a bare filename, only that exact sibling filename is used. If
-you set it to a repo-relative path, every selected assembly uses that one shared
+`metadata_path` defaults to `metadata.json`. A bare filename is looked up next to
+each `.kcl` file and shared by every `.kcl` file in that folder. A repo-relative
+path (containing `/`) makes every selected `.kcl` file use that one shared
 metadata JSON file.
 
 GitLab evaluates `spec:inputs` when the pipeline is created. Per GitLab's
@@ -170,15 +156,15 @@ spec:
     kcl_main_kcl_paths:
       type: string
       default: "[]"
-      description: "Optional JSON string or array of KCL entrypoint paths to process. Empty auto-selects changed assemblies."
+      description: "Optional JSON string or array of .kcl file paths to process. Empty auto-selects changed .kcl files."
     kcl_parameters_filename:
       type: string
       default: parameters.kcl
-      description: "Sibling KCL parameters filename next to each selected entrypoint."
+      description: "Shared KCL parameters filename applied to every .kcl file in the same folder."
     kcl_metadata_path:
       type: string
       default: metadata.json
-      description: "Metadata JSON filename next to each entrypoint, or one repo-relative metadata JSON path."
+      description: "Metadata JSON filename next to each .kcl file, or one repo-relative metadata JSON path."
 ---
 
 include:
@@ -241,37 +227,55 @@ the token.
 
 Consuming repositories must contain:
 
-- one or more KCL entrypoint files. By default these are named `main.kcl`, but
-  the `entrypoint` input can point at a different filename or path.
-- optionally, a sibling parameters file next to each entrypoint file. By
-  default this is named `parameters.kcl`; for non-`main.kcl` entrypoints the
-  workflow also tries `{entrypoint_stem}-parameters.kcl` and
-  `{entrypoint_stem}_parameters.kcl`. `parameters_filename` can point at
-  another exact bare `.kcl` filename.
-- optionally, a metadata JSON file. By default this is sibling `metadata.json`;
-  for non-`main.kcl` entrypoints the workflow also tries
-  `{entrypoint_stem}-metadata.json` and `{entrypoint_stem}_metadata.json`.
-  `metadata_path` can point at another exact bare filename next to each
-  entrypoint or one shared repo-relative `.json` path.
+- one or more `.kcl` files anywhere in the tree. Every `.kcl` file is treated as
+  its own assembly and gets its own STEP, glTF, snapshot, and physics artifacts.
+- optionally, a shared parameters file named `parameters.kcl` (override the name
+  with `parameters_filename`). A file with that name is not turned into an
+  assembly; instead it provides parameter overrides for every `.kcl` file in the
+  same folder.
+- optionally, a metadata JSON file. By default this is sibling `metadata.json`,
+  shared by every `.kcl` file in the same folder. `metadata_path` can point at
+  another bare filename or one shared repo-relative `.json` path.
 
-Missing entrypoint files and duplicate assembly IDs are hard failures. Missing
-parameters files are ignored when `parameters_json` is empty or `{}`. When
-overrides are supplied, missing parameters files produce warnings, and the
-workflow fails if an override key is not exported by any selected parameters
-file. Missing metadata files are warnings; the workflow still writes STEP, glTF,
-and snapshot artifacts but skips physics analysis and bounding-box JSON for that
-assembly. Invalid metadata JSON is still a hard failure when the file exists.
+An empty repository (no `.kcl` files) is a hard failure when no selection or
+changed-file list is supplied. Missing parameters files are ignored when
+`parameters_json` is empty or `{}`. When overrides are supplied, missing
+parameters files produce warnings, and the workflow fails if an override key is
+not exported by any selected parameters file. Missing metadata files are
+warnings; the workflow still writes STEP, glTF, and snapshot artifacts but skips
+physics analysis and bounding-box JSON for that file. Invalid metadata JSON is
+still a hard failure when the file exists.
+
+A `.kcl` file that fails to produce artifacts never fails the job. There are
+several valid reasons a file might not export geometry (an empty file, a module
+that is only meant to be imported, a file that intentionally renders nothing), so
+the workflow warns, removes any partial output for that file, and continues with
+the remaining files. The skipped file still appears in the manifest's
+`assemblies` list, but it contributes no `<id>.*` artifacts. The job logs a
+summary of how many files were skipped at the end.
+
+#### Changed-file selection
+
+When `main_kcl_paths` is empty, the workflow uses Git to find changed files and
+selects:
+
+- each changed `.kcl` file (its own assembly),
+- every `.kcl` file in a folder whose `parameters.kcl` or sibling `metadata.json`
+  changed, and
+- every `.kcl` file when a shared repo-relative `metadata_path` changed.
+
+Importing another file does not pull it in automatically; only the changed file
+itself is rebuilt. List paths in `main_kcl_paths` to force a specific set.
 
 #### Parameters file
 
 The `parameters_json` input replaces existing exported top-level assignments in
-each discovered sibling parameters file. If `parameters_json` is empty or `{}`,
+each discovered `parameters.kcl` file. If `parameters_json` is empty or `{}`,
 parameters files are optional and missing files are ignored. When overrides are
-supplied, assemblies without a parameters file are left alone unless that leaves
-an override key with no matching export anywhere. It does not add new parameters
-and it does not replace non-exported local values. The default filename is
-`parameters.kcl`, with the same non-`main.kcl` entrypoint-stem fallback described
-above.
+supplied, `.kcl` files without a folder parameters file are left alone unless
+that leaves an override key with no matching export anywhere. It does not add new
+parameters and it does not replace non-exported local values. The default
+filename is `parameters.kcl`; override it with `parameters_filename`.
 
 Example `parameters.kcl`:
 
@@ -329,16 +333,14 @@ top-level parameters and model files use `import * from "parameters.kcl"`.
 
 #### Metadata JSON
 
-The metadata JSON provides the physics arguments for each entrypoint's
+The metadata JSON provides the physics arguments for each `.kcl` file's
 `zoo kcl analyze` and derived bounding-box artifact. If no metadata file exists
-for an assembly, the job warns and skips those physics artifacts for that
-assembly. By default, `metadata.json` lives next to each entrypoint file: root
-`main.kcl` uses the root `metadata.json`, and `assembly-2/main.kcl` uses
-`assembly-2/metadata.json`. For non-`main.kcl` entrypoints, the default lookup
-also tries the entrypoint stem variants, for example `assembly-metadata.json`
-and `assembly_metadata.json`. Set `metadata_path` to a bare filename to use that
-exact sibling filename, or to a repo-relative path to make every selected
-assembly use one shared metadata file.
+for a file, the job warns and skips those physics artifacts for that file. By
+default, `metadata.json` lives next to each `.kcl` file and is shared by every
+`.kcl` file in that folder: files under `assembly-2/` use
+`assembly-2/metadata.json`. Set `metadata_path` to a bare filename to use that
+exact sibling filename, or to a repo-relative path to make every selected file
+use one shared metadata file.
 
 ```json
 {
@@ -359,10 +361,10 @@ not guess density, units, or material data.
 
 #### Physics JSON
 
-Each assembly gets `<entrypoint>-analysis.json` from
-`zoo kcl analyze --format json`, where `<entrypoint>` is the selected entrypoint
-filename without `.kcl`. The numeric values depend on the model and the units
-in that assembly's sibling `metadata.json`; the shape looks like:
+Each `.kcl` file gets `<id>-analysis.json` from `zoo kcl analyze --format json`,
+where `<id>` is the file's repo-relative path without `.kcl`. The numeric values
+depend on the model and the units in that file's `metadata.json`; the shape
+looks like:
 
 ```json
 {
@@ -381,7 +383,7 @@ in that assembly's sibling `metadata.json`; the shape looks like:
 }
 ```
 
-The workflow also writes `<entrypoint>-bounding-box.json` as a smaller
+The workflow also writes `<id>-bounding-box.json` as a smaller
 machine-friendly artifact:
 
 ```json
@@ -392,8 +394,8 @@ machine-friendly artifact:
 }
 ```
 
-`<entrypoint>-analysis.json` is the raw Zoo CLI analysis JSON.
-`<entrypoint>-bounding-box.json` is extracted from Zoo analysis JSON so
+`<id>-analysis.json` is the raw Zoo CLI analysis JSON.
+`<id>-bounding-box.json` is extracted from Zoo analysis JSON so
 consumers do not have to parse the CLI's human table output from
 `zoo kcl bounding-box`.
 
@@ -403,82 +405,51 @@ The workflow always writes to `kcl-artifacts/`:
 
 ```text
 kcl-artifacts/
-  assemblies/
-    root/
-      main.step
-      main.gltf
-      main-analysis.json
-      main-bounding-box.json
-      main-snapshot.png
-    assembly-2/
-      main.step
-      main.gltf
-      main-analysis.json
-      main-bounding-box.json
-      main-snapshot.png
-  snapshots/
-    main.isometric.png
-    main.front.png
-    main.top.png
-    main.right.png
-    part.isometric.png
-    part.front.png
-    part.top.png
-    part.right.png
-    assembly-2/
-      main.isometric.png
-      main.front.png
-      main.top.png
-      main.right.png
-      part.isometric.png
-      part.front.png
-      part.top.png
-      part.right.png
-  source/
-    main.kcl
-    metadata.json
-    part.kcl
-    parameters.kcl
-    assembly-2/
-      main.kcl
-      metadata.json
-      part.kcl
-      parameters.kcl
+  cube.step
+  cube.gltf
+  cube-analysis.json
+  cube-bounding-box.json
+  cube-snapshot.png
+  assembly-1/
+    part1.step
+    part1.gltf
+    part1-analysis.json
+    part1-bounding-box.json
+    part1-snapshot.png
+    part2.step
+    part2.gltf
+    ...
+  chair/
+    leg.step
+    leg.gltf
+    leg-snapshot.png
+    seat.step
+    ...
+  parameters.json
   manifest.json
 ```
 
-Each entrypoint file gets STEP, glTF, and a four-ways assembly snapshot preview
-under `kcl-artifacts/assemblies/<assembly-id>/`. The root entrypoint uses
-`root` as its assembly ID. Nested entrypoints use their directory path relative
-to the repo, so `assembly-2/main.kcl` writes under `assemblies/assembly-2/`.
-Assembly-level artifact names use the entrypoint filename without `.kcl`: for
-`main.kcl`, the files are `main.step`, `main.gltf`, `main-analysis.json`,
-`main-bounding-box.json`, and `main-snapshot.png`; for `assembly.kcl`, they are
-`assembly.step`, `assembly.gltf`, `assembly-analysis.json`,
-`assembly-bounding-box.json`, and `assembly-snapshot.png`. The analysis and
-bounding-box files are only present when metadata JSON was available for that
-assembly.
+There is one `kcl-artifacts/` folder. Each `.kcl` file's artifacts are written
+directly under it, nested by the folder the source `.kcl` file lives in. A
+root-level file such as `cube.kcl` writes loose artifacts (`cube.step`,
+`cube.gltf`, `cube-snapshot.png`, ...) at the top of `kcl-artifacts/`, while a
+file in a folder such as `assembly-1/part1.kcl` writes
+`assembly-1/part1.step`, `assembly-1/part1.gltf`,
+`assembly-1/part1-snapshot.png`, and so on. There are no separate `assemblies/`,
+`snapshots/`, or `source/` subfolders, and the source `.kcl` files are not
+copied (they already live in the repository).
 
-Per-file snapshots are generated for every `.kcl` file except the configured
-parameters filename, preserving the source path under `kcl-artifacts/snapshots/`
-and adding a view suffix. The default scheme is
-`<source-without-.kcl>.<view>.png`, with `isometric`, `front`, `top`, and
-`right` views. The source `.kcl` files used for those snapshots are copied under
-`kcl-artifacts/source/` with the same relative paths. Each selected assembly's
-sibling parameters file and configured metadata JSON file are copied there too
-when present.
-Assembly artifacts, source copies, and per-file snapshots are limited to the
-selected assembly directories, whether they were selected by `main_kcl_paths` or
-by changed-file detection.
+Each `.kcl` file gets exactly one snapshot preview, `<id>-snapshot.png`, taken
+at the `snapshot_angle` camera angle (default `four-ways`, a single image
+composed of four views). The `<id>-analysis.json` and `<id>-bounding-box.json`
+files are only present when metadata JSON was available for that file. Artifacts
+are limited to the selected `.kcl` files, whether they were selected by
+`main_kcl_paths` or by changed-file detection.
 
-Override `snapshot_views` with a comma-separated Zoo snapshot angle list to
-change the per-file views. The built-in default maps `iso` to `isometric` and
-`right-side` to `right` in filenames.
-
-The artifact job runs assembly generation and per-file snapshot generation with
-bounded concurrency. Override `parallelism` to tune the maximum number of
-concurrent Zoo CLI artifact commands. The default is `6`; set it to `1` to force
-the old sequential behavior. Each Zoo CLI artifact command retries on failure;
+The artifact job runs artifact generation with bounded concurrency. Override
+`parallelism` to tune the maximum number of concurrent Zoo CLI artifact
+commands. The default is `6`; set it to `1` to force sequential behavior. Each
+Zoo CLI artifact command retries on failure;
 override `zoo_attempts` and `zoo_retry_delay` to tune the retry count and delay.
 The defaults are `4` attempts with a `10` second delay.
 

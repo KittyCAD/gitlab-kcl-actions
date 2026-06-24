@@ -11,16 +11,13 @@ spec:
       description: "JSON object of values to replace in sibling parameters.kcl files before running Zoo."
     main_kcl_paths:
       default: "[]"
-      description: "Optional bare path, JSON string, or JSON array of KCL entrypoint paths. Empty processes changed assemblies only."
-    entrypoint:
-      default: main.kcl
-      description: "KCL entrypoint filename or repo-relative path to discover when main_kcl_paths is empty."
+      description: "Optional bare path, JSON string, or JSON array of .kcl file paths to process. Empty processes changed .kcl files only."
     parameters_filename:
       default: parameters.kcl
-      description: "Sibling KCL parameters filename. The default also tries entrypoint-stem variants for non-main entrypoints."
+      description: "Parameters .kcl filename shared by every .kcl file in the same folder. Excluded from STEP/glTF output."
     metadata_path:
       default: metadata.json
-      description: "Metadata JSON filename, default entrypoint-stem variants, or one repo-relative metadata JSON path."
+      description: "Metadata JSON filename next to each .kcl file, or one repo-relative metadata JSON path."
     host:
       default: ""
       description: "Optional Zoo API host. Empty means do not pass --host to the Zoo CLI."
@@ -41,10 +38,7 @@ spec:
         - right-side
         - four-ways
         - iso
-      description: "Camera angle used for the assembly-level entrypoint snapshot preview."
-    snapshot_views:
-      default: iso,front,top,right-side
-      description: "Comma-separated camera angles used for per-file snapshot view PNGs."
+      description: "Camera angle used for the single snapshot preview generated per .kcl file."
     camera_style:
       default: ortho
       options:
@@ -183,12 +177,10 @@ spec:
       $[[ inputs.parameters_json ]]
     KCL_MAIN_KCL_PATHS: |-
       $[[ inputs.main_kcl_paths ]]
-    KCL_ENTRYPOINT: '$[[ inputs.entrypoint ]]'
     KCL_PARAMETERS_FILENAME: '$[[ inputs.parameters_filename ]]'
     KCL_METADATA_PATH: '$[[ inputs.metadata_path ]]'
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
-    KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
     KCL_ZOO_PARALLELISM: '$[[ inputs.parallelism ]]'
@@ -212,7 +204,6 @@ spec:
       import os
       import re
       import shlex
-      import shutil
       import sys
       from dataclasses import dataclass
       from pathlib import Path, PurePosixPath
@@ -240,7 +231,6 @@ spec:
           "bounding_box_output_unit": "BOUNDING_BOX_OUTPUT_UNIT",
       }
 
-      DEFAULT_ENTRYPOINT = "main.kcl"
       DEFAULT_PARAMETERS_FILENAME = "parameters.kcl"
       DEFAULT_METADATA_PATH = "metadata.json"
       MISSING_ASSEMBLY_FIELD = "-"
@@ -317,14 +307,14 @@ spec:
                   values = value
               else:
                   fail(
-                      f"{description} must be a relative .kcl entrypoint path, JSON string, "
+                      f"{description} must be a relative .kcl file path, JSON string, "
                       "or JSON array of strings"
                   )
 
           output: list[str] = []
           seen: set[str] = set()
           for item in values:
-              path = normalize_entrypoint_path(item, "entrypoint")
+              path = normalize_entrypoint_path(item, "main_kcl_paths")
               if path in seen:
                   fail(f"{description} contains duplicate path: {path}")
               seen.add(path)
@@ -376,54 +366,28 @@ spec:
           return output
 
 
-      def default_sibling_candidates(main_kcl: Path, raw_filename: str) -> list[Path]:
-          candidates = [main_kcl.parent / raw_filename]
-          if main_kcl.name != DEFAULT_ENTRYPOINT:
-              candidates.extend(
-                  [
-                      main_kcl.parent / f"{main_kcl.stem}-{raw_filename}",
-                      main_kcl.parent / f"{main_kcl.stem}_{raw_filename}",
-                  ]
-              )
-          return unique_paths(candidates)
-
-
-      def first_existing_file(candidates: list[Path]) -> Path | None:
-          for candidate in candidates:
-              if candidate.is_file():
-                  return candidate
-          return None
-
-
-      def candidate_list_message(candidates: list[Path], repo_root: Path) -> str:
-          return ", ".join(relative_posix(candidate, repo_root) for candidate in candidates)
-
-
-      def parameters_file_for_entrypoint(
+      def parameters_file_for_assembly(
           repo_root: Path,
-          main_kcl: Path,
+          kcl_file: Path,
           parameters_filename: str,
           warn_if_missing: bool,
       ) -> Path | None:
-          if parameters_filename == DEFAULT_PARAMETERS_FILENAME:
-              candidates = default_sibling_candidates(main_kcl, parameters_filename)
-          else:
-              candidates = [main_kcl.parent / parameters_filename]
-
-          parameters_file = first_existing_file(candidates)
-          if parameters_file is None and warn_if_missing:
+          candidate = kcl_file.parent / parameters_filename
+          if candidate.is_file():
+              return candidate
+          if warn_if_missing:
               warn(
                   f"parameters file was not found for "
-                  f"{relative_posix(main_kcl, repo_root)}; tried "
-                  f"{candidate_list_message(candidates, repo_root)}; "
-                  "parameter overrides will be skipped for this assembly"
+                  f"{relative_posix(kcl_file, repo_root)}; tried "
+                  f"{relative_posix(candidate, repo_root)}; "
+                  "parameter overrides will be skipped for this file"
               )
-          return parameters_file
+          return None
 
 
-      def metadata_file_for_entrypoint(
+      def metadata_file_for_assembly(
           repo_root: Path,
-          main_kcl: Path,
+          kcl_file: Path,
           metadata_path: str,
       ) -> Path | None:
           path = PurePosixPath(metadata_path)
@@ -434,28 +398,16 @@ spec:
               warn(f"metadata file {metadata_path!r} was not found; physics artifacts will be skipped")
               return None
 
-          if metadata_path == DEFAULT_METADATA_PATH:
-              candidates = default_sibling_candidates(main_kcl, metadata_path)
-          else:
-              candidates = [main_kcl.parent / metadata_path]
-
-          metadata_file = first_existing_file(candidates)
-          if metadata_file is None:
-              warn(
-                  f"metadata file was not found for "
-                  f"{relative_posix(main_kcl, repo_root)}; tried "
-                  f"{candidate_list_message(candidates, repo_root)}; "
-                  "physics artifacts will be skipped for this assembly"
-              )
-          return metadata_file
-
-
-      def parameter_paths_for_assemblies(assemblies: list[Assembly], repo_root: Path) -> set[Path]:
-          return {
-              repo_root / assembly.parameters_kcl
-              for assembly in assemblies
-              if assembly.parameters_kcl is not None
-          }
+          candidate = kcl_file.parent / metadata_path
+          if candidate.is_file():
+              return candidate
+          warn(
+              f"metadata file was not found for "
+              f"{relative_posix(kcl_file, repo_root)}; tried "
+              f"{relative_posix(candidate, repo_root)}; "
+              "physics artifacts will be skipped for this file"
+          )
+          return None
 
 
       def normalize_repo_path(raw_path: str, description: str) -> str:
@@ -571,37 +523,13 @@ spec:
           return path.relative_to(root).as_posix()
 
 
-      def find_named_files(repo_root: Path, filename: str) -> list[Path]:
-          return [path for path in walk_kcl_files(repo_root) if path.name == filename]
+      def discover_assembly_files(repo_root: Path, parameters_filename: str) -> list[Path]:
+          return [path for path in walk_kcl_files(repo_root) if path.name != parameters_filename]
 
 
-      def find_entrypoint_files(repo_root: Path, entrypoint: str) -> list[Path]:
-          entrypoint_path = PurePosixPath(entrypoint)
-          if len(entrypoint_path.parts) == 1:
-              return find_named_files(repo_root, entrypoint)
-
-          path = repo_root / entrypoint_path.as_posix()
-          return [path] if path.is_file() else []
-
-
-      def assembly_id_for_main(main_kcl: Path, repo_root: Path) -> str:
-          relative_dir = main_kcl.parent.relative_to(repo_root).as_posix()
-          return "root" if relative_dir == "." else relative_dir
-
-
-      def contains_path(parent: Path, child: Path) -> bool:
-          try:
-              child.relative_to(parent)
-          except ValueError:
-              return False
-          return True
-
-
-      def owning_assembly_dir(path: Path, assembly_dirs: set[Path]) -> Path | None:
-          matches = [assembly_dir for assembly_dir in assembly_dirs if contains_path(assembly_dir, path)]
-          if not matches:
-              return None
-          return max(matches, key=lambda item: len(item.parts))
+      def assembly_id_for_file(kcl_file: Path, repo_root: Path) -> str:
+          relative = PurePosixPath(relative_posix(kcl_file, repo_root))
+          return relative.with_suffix("").as_posix()
 
 
       def load_changed_paths(changed_files_file: Path | None) -> list[str]:
@@ -624,129 +552,107 @@ spec:
           return output
 
 
-      def main_files_for_changed_paths(
+      def assemblies_for_changed_paths(
           repo_root: Path,
-          all_main_files: list[Path],
+          all_assembly_files: list[Path],
           changed_paths: list[str],
-          shared_dependency_paths: set[str],
+          parameters_filename: str,
+          metadata_path: str,
       ) -> list[Path]:
-          assembly_dirs = {path.parent for path in all_main_files}
-          selected_dirs: set[Path] = set()
-          selected_all = False
+          metadata_pure = PurePosixPath(metadata_path)
+          metadata_is_shared = len(metadata_pure.parts) > 1
+          metadata_sibling_name = None if metadata_is_shared else metadata_path
+
+          assembly_by_relpath = {
+              relative_posix(assembly, repo_root): assembly for assembly in all_assembly_files
+          }
+          folder_assemblies: dict[Path, list[Path]] = {}
+          for assembly in all_assembly_files:
+              folder_assemblies.setdefault(assembly.parent, []).append(assembly)
+
+          selected: set[Path] = set()
           for relative_path in changed_paths:
-              if relative_path in shared_dependency_paths:
-                  selected_all = True
+              if metadata_is_shared and relative_path == metadata_path:
+                  return list(all_assembly_files)
+              name = PurePosixPath(relative_path).name
+              if name == parameters_filename or (
+                  metadata_sibling_name is not None and name == metadata_sibling_name
+              ):
+                  folder = (repo_root / relative_path).parent
+                  selected.update(folder_assemblies.get(folder, []))
                   continue
-              owner = owning_assembly_dir(repo_root / relative_path, assembly_dirs)
-              if owner is not None:
-                  selected_dirs.add(owner)
-          if selected_all:
-              return all_main_files
-          return [main_kcl for main_kcl in all_main_files if main_kcl.parent in selected_dirs]
-
-
-      def snapshot_files_for_assemblies(
-          repo_root: Path,
-          selected_main_files: list[Path],
-          all_main_files: list[Path],
-          limit_to_selected: bool,
-          parameter_paths: set[Path],
-      ) -> list[Path]:
-          snapshot_files = [path for path in walk_kcl_files(repo_root) if path not in parameter_paths]
-          if not limit_to_selected:
-              return snapshot_files
-
-          selected_dirs = {path.parent for path in selected_main_files}
-          assembly_dirs = {path.parent for path in all_main_files}
-          return [
-              path for path in snapshot_files if owning_assembly_dir(path, assembly_dirs) in selected_dirs
-          ]
+              assembly = assembly_by_relpath.get(relative_path)
+              if assembly is not None:
+                  selected.add(assembly)
+          return [assembly for assembly in all_assembly_files if assembly in selected]
 
 
       def write_project_info(
           repo_root: Path,
           assemblies_out: Path,
-          snapshots_out: Path,
           main_kcl_paths_json: str = "[]",
           changed_files_file: Path | None = None,
-          entrypoint: str = DEFAULT_ENTRYPOINT,
           parameters_filename: str = DEFAULT_PARAMETERS_FILENAME,
           metadata_path: str = DEFAULT_METADATA_PATH,
           parameters_json: str = "{}",
       ) -> None:
           repo_root = repo_root.resolve()
-          entrypoint = normalize_entrypoint_path(entrypoint, "entrypoint")
           parameters_filename = normalize_parameters_filename(parameters_filename)
           metadata_path = normalize_metadata_path(metadata_path)
           parameters_overrides = load_json_object(parameters_json, "parameters_json")
           selected_paths = load_entrypoint_paths(main_kcl_paths_json, "main_kcl_paths")
 
-          all_main_files = find_entrypoint_files(repo_root, entrypoint)
-          if selected_paths:
-              main_files = []
-              for path in selected_paths:
-                  main_file = repo_root / path
-                  if not main_file.is_file():
-                      fail(f"main_kcl_paths referenced missing .kcl file: {path}")
-                  main_files.append(main_file)
-              known_main_files = sorted({*all_main_files, *main_files})
-          elif not all_main_files:
-              if changed_files_file is not None:
-                  assemblies_out.write_text("", encoding="utf-8")
-                  snapshots_out.write_text("", encoding="utf-8")
-                  return
-              fail(f"required entrypoint file was not found: {entrypoint}")
-          else:
-              known_main_files = all_main_files
+          all_assembly_files = discover_assembly_files(repo_root, parameters_filename)
 
-          limit_to_selected = bool(selected_paths) or changed_files_file is not None
-          if changed_files_file is not None and not selected_paths:
+          if selected_paths:
+              assembly_files: list[Path] = []
+              for path in selected_paths:
+                  assembly_file = repo_root / path
+                  if not assembly_file.is_file():
+                      fail(f"main_kcl_paths referenced missing .kcl file: {path}")
+                  if PurePosixPath(path).name == parameters_filename:
+                      fail(f"main_kcl_paths referenced the parameters file: {path}")
+                  assembly_files.append(assembly_file)
+              assembly_files = unique_paths(assembly_files)
+          elif changed_files_file is not None:
               changed_paths = load_changed_paths(changed_files_file)
-              shared_dependency_paths = set()
-              if len(PurePosixPath(metadata_path).parts) > 1:
-                  shared_dependency_paths.add(metadata_path)
-              main_files = main_files_for_changed_paths(
+              assembly_files = assemblies_for_changed_paths(
                   repo_root,
-                  known_main_files,
+                  all_assembly_files,
                   changed_paths,
-                  shared_dependency_paths,
+                  parameters_filename,
+                  metadata_path,
               )
-          elif not selected_paths:
-              main_files = known_main_files
+          else:
+              if not all_assembly_files:
+                  fail("no .kcl files were found")
+              assembly_files = all_assembly_files
 
           assemblies: list[Assembly] = []
           assembly_ids: set[str] = set()
-          for main_kcl in main_files:
-              parameters_kcl = parameters_file_for_entrypoint(
+          for kcl_file in assembly_files:
+              parameters_kcl = parameters_file_for_assembly(
                   repo_root,
-                  main_kcl,
+                  kcl_file,
                   parameters_filename,
                   warn_if_missing=bool(parameters_overrides),
               )
-              metadata_json = metadata_file_for_entrypoint(repo_root, main_kcl, metadata_path)
+              metadata_json = metadata_file_for_assembly(repo_root, kcl_file, metadata_path)
               if metadata_json is not None:
                   validate_metadata(metadata_json)
 
-              assembly_id = assembly_id_for_main(main_kcl, repo_root)
+              assembly_id = assembly_id_for_file(kcl_file, repo_root)
               if assembly_id in assembly_ids:
                   fail(f"assembly id {assembly_id!r} is not unique")
               assembly_ids.add(assembly_id)
               assemblies.append(
                   Assembly(
                       assembly_id,
-                      relative_posix(main_kcl, repo_root),
+                      relative_posix(kcl_file, repo_root),
                       relative_posix(parameters_kcl, repo_root) if parameters_kcl is not None else None,
                       relative_posix(metadata_json, repo_root) if metadata_json is not None else None,
                   )
               )
-
-          snapshot_files = snapshot_files_for_assemblies(
-              repo_root,
-              main_files,
-              known_main_files,
-              limit_to_selected,
-              parameter_paths_for_assemblies(assemblies, repo_root),
-          )
 
           assemblies_out.write_text(
               "".join(
@@ -761,10 +667,6 @@ spec:
                   + "\n"
                   for assembly in assemblies
               ),
-              encoding="utf-8",
-          )
-          snapshots_out.write_text(
-              "".join(relative_posix(path, repo_root) + "\n" for path in snapshot_files),
               encoding="utf-8",
           )
 
@@ -786,7 +688,7 @@ spec:
                   )
               )
           if not assemblies:
-              fail("assemblies file did not contain any entrypoint entries")
+              fail("assemblies file did not contain any assembly entries")
           return assemblies
 
 
@@ -901,38 +803,6 @@ spec:
           )
 
 
-      def write_source_files(
-          repo_root: Path,
-          snapshots_file: Path,
-          assemblies_file: Path,
-          output_dir: Path,
-      ) -> None:
-          repo_root = repo_root.resolve()
-          output_dir = output_dir.resolve()
-          relative_paths: set[str] = set()
-          for line in snapshots_file.read_text(encoding="utf-8").splitlines():
-              if not line:
-                  continue
-              relative_path = normalize_repo_path(line, "source file")
-              if not relative_path.endswith(".kcl"):
-                  continue
-              relative_paths.add(relative_path)
-
-          for assembly in load_assemblies(assemblies_file):
-              if assembly.parameters_kcl is not None:
-                  relative_paths.add(normalize_repo_path(assembly.parameters_kcl, "source file"))
-              if assembly.metadata_json is not None:
-                  relative_paths.add(normalize_repo_path(assembly.metadata_json, "source file"))
-
-          for relative_path in sorted(relative_paths):
-              source = repo_root / relative_path
-              if not source.is_file():
-                  fail(f"source file does not exist: {relative_path}")
-              destination = output_dir / relative_path
-              destination.parent.mkdir(parents=True, exist_ok=True)
-              shutil.copyfile(source, destination)
-
-
       def parameters_json_name_for_assemblies(assemblies: list[Assembly]) -> str:
           names = set()
           for assembly in assemblies:
@@ -1014,10 +884,8 @@ spec:
           info_parser = subparsers.add_parser("project-info")
           info_parser.add_argument("--repo-root", required=True, type=Path)
           info_parser.add_argument("--assemblies-out", required=True, type=Path)
-          info_parser.add_argument("--snapshots-out", required=True, type=Path)
           info_parser.add_argument("--main-kcl-paths", default="[]")
           info_parser.add_argument("--changed-files-file", type=Path)
-          info_parser.add_argument("--entrypoint", default=DEFAULT_ENTRYPOINT)
           info_parser.add_argument("--parameters-filename", default=DEFAULT_PARAMETERS_FILENAME)
           info_parser.add_argument("--metadata-path", default=DEFAULT_METADATA_PATH)
           info_parser.add_argument("--parameters-json", default="{}")
@@ -1030,12 +898,6 @@ spec:
           bounding_box_parser.add_argument("--analysis-file", required=True, type=Path)
           bounding_box_parser.add_argument("--output-file", required=True, type=Path)
           bounding_box_parser.add_argument("--output-unit", required=True)
-
-          source_parser = subparsers.add_parser("write-source-files")
-          source_parser.add_argument("--repo-root", required=True, type=Path)
-          source_parser.add_argument("--snapshots-file", required=True, type=Path)
-          source_parser.add_argument("--assemblies-file", required=True, type=Path)
-          source_parser.add_argument("--output-dir", required=True, type=Path)
 
           manifest_parser = subparsers.add_parser("write-manifest")
           manifest_parser.add_argument("--artifact-dir", required=True, type=Path)
@@ -1064,10 +926,8 @@ spec:
                   write_project_info(
                       args.repo_root,
                       args.assemblies_out,
-                      args.snapshots_out,
                       args.main_kcl_paths,
                       args.changed_files_file,
-                      args.entrypoint,
                       args.parameters_filename,
                       args.metadata_path,
                       args.parameters_json,
@@ -1079,13 +939,6 @@ spec:
                       args.analysis_file,
                       args.output_file,
                       args.output_unit,
-                  )
-              elif args.command == "write-source-files":
-                  write_source_files(
-                      args.repo_root,
-                      args.snapshots_file,
-                      args.assemblies_file,
-                      args.output_dir,
                   )
               elif args.command == "write-manifest":
                   write_manifest(
@@ -1123,15 +976,10 @@ spec:
       if [[ -z "$main_kcl_paths" ]]; then
         main_kcl_paths="[]"
       fi
-      entrypoint="${KCL_ENTRYPOINT:-main.kcl}"
       parameters_filename="${KCL_PARAMETERS_FILENAME:-parameters.kcl}"
       metadata_path="${KCL_METADATA_PATH:-metadata.json}"
       host="${KCL_ZOO_HOST:-}"
       snapshot_angle="${KCL_SNAPSHOT_ANGLE:-four-ways}"
-      snapshot_views="${KCL_SNAPSHOT_VIEWS:-iso,front,top,right-side}"
-      if [[ -z "$snapshot_views" ]]; then
-        snapshot_views="iso,front,top,right-side"
-      fi
       camera_style="${KCL_CAMERA_STYLE:-ortho}"
       camera_padding="${KCL_CAMERA_PADDING:-0.1}"
       zoo_attempts="${KCL_ZOO_ATTEMPTS:-4}"
@@ -1231,23 +1079,21 @@ spec:
         --exclude='./kcl-artifacts' \
         -cf - . | tar -C "$workspace" -xf -
       rm -rf "$artifact_dir"
-      mkdir -p "$artifact_dir/assemblies" "$artifact_dir/snapshots" "$artifact_dir/source"
+      mkdir -p "$artifact_dir"
 
       cd "$workspace"
 
       python3 "$python_helper" project-info \
         --repo-root "$workspace" \
         --assemblies-out "$state_dir/assemblies.tsv" \
-        --snapshots-out "$state_dir/snapshots.list" \
         --main-kcl-paths "$main_kcl_paths" \
-        --entrypoint "$entrypoint" \
         --parameters-filename "$parameters_filename" \
         --metadata-path "$metadata_path" \
         --parameters-json "$parameters_json" \
         "${changed_files_args[@]}"
 
       if [[ ! -s "$state_dir/assemblies.tsv" ]]; then
-        echo "No changed KCL assembly directories found; nothing to do."
+        echo "No KCL files to process; nothing to do."
         exit 0
       fi
 
@@ -1328,12 +1174,12 @@ spec:
 
       background_pids=()
       background_names=()
+      background_failures=0
 
       finish_background_job() {
         local pid="${background_pids[0]}"
         local name="${background_names[0]}"
         local status=0
-        local remaining_pid
 
         background_pids=("${background_pids[@]:1}")
         background_names=("${background_names[@]:1}")
@@ -1346,14 +1192,11 @@ spec:
           return 0
         fi
 
-        echo "error: background task failed with status ${status}: ${name}" >&2
-        for remaining_pid in "${background_pids[@]}"; do
-          kill "$remaining_pid" 2>/dev/null || true
-        done
-        for remaining_pid in "${background_pids[@]}"; do
-          wait "$remaining_pid" 2>/dev/null || true
-        done
-        exit "$status"
+        # A single task failing (for example a KCL file with no exportable geometry)
+        # must not fail the whole job. Warn, count it, and keep going.
+        echo "warning: background task did not complete: ${name} (status ${status}); continuing" >&2
+        background_failures=$((background_failures + 1))
+        return 0
       }
 
       run_background() {
@@ -1407,23 +1250,6 @@ spec:
         fi
       }
 
-      snapshot_view_slug() {
-        case "$1" in
-          iso)
-            printf '%s\n' "isometric"
-            ;;
-          right-side)
-            printf '%s\n' "right"
-            ;;
-          four-ways)
-            printf '%s\n' "four-ways"
-            ;;
-          *)
-            printf '%s\n' "$1" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//;s/-$//'
-            ;;
-        esac
-      }
-
       export_one() {
         local format="$1"
         local extension="$2"
@@ -1475,12 +1301,10 @@ spec:
         local assembly_id="$2"
         local main_kcl="$3"
         local metadata_json="$4"
-        local assembly_dir="$artifact_dir/assemblies/$assembly_id"
+        local artifact_base="$artifact_dir/$assembly_id"
         local metadata_env=""
         local analysis_file=""
         local bounding_box_analysis_file=""
-        local entrypoint_filename
-        local entrypoint_stem
         local lint_pid
         local analysis_pid=""
         local bounding_box_analysis_pid=""
@@ -1489,10 +1313,7 @@ spec:
         local snapshot_pid
         local failure_status=0
 
-        mkdir -p "$assembly_dir"
-
-        entrypoint_filename="${main_kcl##*/}"
-        entrypoint_stem="${entrypoint_filename%.kcl}"
+        mkdir -p "$(dirname "$artifact_base")"
 
         if [[ "$metadata_json" == "-" ]]; then
           echo "warning: no metadata JSON for ${main_kcl}; skipping physics artifacts" >&2
@@ -1510,7 +1331,7 @@ spec:
         lint_pid="$!"
 
         if [[ "$metadata_json" != "-" ]]; then
-          analysis_file="$assembly_dir/${entrypoint_stem}-analysis.json"
+          analysis_file="${artifact_base}-analysis.json"
           write_analysis "$analysis_file" "$main_kcl" "$CENTER_OF_MASS_OUTPUT_UNIT" &
           analysis_pid="$!"
 
@@ -1527,7 +1348,7 @@ spec:
           step \
           "$main_kcl" \
           "$state_dir/export-step-${assembly_index}" \
-          "$assembly_dir/${entrypoint_stem}.step" &
+          "${artifact_base}.step" &
         step_pid="$!"
 
         export_one \
@@ -1535,7 +1356,7 @@ spec:
           gltf \
           "$main_kcl" \
           "$state_dir/export-gltf-${assembly_index}" \
-          "$assembly_dir/${entrypoint_stem}.gltf" &
+          "${artifact_base}.gltf" &
         gltf_pid="$!"
 
         run_zoo "${zoo_cmd[@]}" kcl snapshot \
@@ -1544,7 +1365,7 @@ spec:
           --camera-style "$camera_style" \
           --camera-padding "$camera_padding" \
           "$main_kcl" \
-          "$assembly_dir/${entrypoint_stem}-snapshot.png" &
+          "${artifact_base}-snapshot.png" &
         snapshot_pid="$!"
 
         record_assembly_command_status "$lint_pid" "lint ${main_kcl}"
@@ -1561,16 +1382,29 @@ spec:
         record_assembly_command_status "$snapshot_pid" "snapshot ${main_kcl}"
 
         if [[ "$failure_status" -ne 0 ]]; then
-          return "$failure_status"
+          # The file could not be turned into artifacts. There are several valid
+          # reasons for this (no exportable geometry, a file that is only meant to be
+          # imported, etc.), so skip it with a warning instead of failing the job.
+          echo "warning: ${main_kcl} produced no artifacts (it may have no exportable geometry); skipping it without failing the job" >&2
+          rm -f \
+            "${artifact_base}.step" \
+            "${artifact_base}.gltf" \
+            "${artifact_base}-analysis.json" \
+            "${artifact_base}-bounding-box.json" \
+            "${artifact_base}-snapshot.png"
+          : > "${state_dir}/skipped/${assembly_index}"
+          return 0
         fi
 
         if [[ "$metadata_json" != "-" ]]; then
           python3 "$python_helper" bounding-box-json \
             --analysis-file "$bounding_box_analysis_file" \
-            --output-file "$assembly_dir/${entrypoint_stem}-bounding-box.json" \
+            --output-file "${artifact_base}-bounding-box.json" \
             --output-unit "$BOUNDING_BOX_OUTPUT_UNIT"
         fi
       }
+
+      mkdir -p "$state_dir/skipped"
 
       assembly_index=0
       while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
@@ -1582,50 +1416,20 @@ spec:
       done < "$state_dir/assemblies.tsv"
       wait_for_background_jobs
 
-      write_snapshot_view() {
-        local snapshot_input="$1"
-        local snapshot_view_angle="$2"
-        local snapshot_base="$artifact_dir/snapshots/${snapshot_input%.kcl}"
-        local snapshot_slug
-        local snapshot_output
-
-        snapshot_slug="$(snapshot_view_slug "$snapshot_view_angle")"
-        snapshot_output="${snapshot_base}.${snapshot_slug}.png"
-        mkdir -p "$(dirname "$snapshot_output")"
-        run_zoo "${zoo_cmd[@]}" kcl snapshot \
-          --output-format png \
-          --angle "$snapshot_view_angle" \
-          --camera-style "$camera_style" \
-          --camera-padding "$camera_padding" \
-          "$snapshot_input" \
-          "$snapshot_output"
-      }
-
-      IFS=',' read -r -a snapshot_view_angles <<< "$snapshot_views"
-      while IFS= read -r snapshot_input; do
-        [[ -n "$snapshot_input" ]] || continue
-        for snapshot_view_angle in "${snapshot_view_angles[@]}"; do
-          snapshot_view_angle="${snapshot_view_angle//[[:space:]]/}"
-          [[ -n "$snapshot_view_angle" ]] || continue
-          run_background \
-            "snapshot ${snapshot_input} ${snapshot_view_angle}" \
-            write_snapshot_view "$snapshot_input" "$snapshot_view_angle"
-        done
-      done < "$state_dir/snapshots.list"
-      wait_for_background_jobs
-
-      python3 "$python_helper" write-source-files \
-        --repo-root "$workspace" \
-        --snapshots-file "$state_dir/snapshots.list" \
-        --assemblies-file "$state_dir/assemblies.tsv" \
-        --output-dir "$artifact_dir/source"
-
       python3 "$python_helper" write-manifest \
         --artifact-dir "$artifact_dir" \
         --assemblies-file "$state_dir/assemblies.tsv" \
         --zoo-version "$zoo_version" \
         --host "$host" \
         --parameters-json "$parameters_json"
+
+      skipped_count="$(find "$state_dir/skipped" -type f 2>/dev/null | wc -l | tr -d ' ')"
+      if [[ "$skipped_count" -gt 0 ]]; then
+        echo "warning: ${skipped_count} KCL file(s) produced no artifacts and were skipped" >&2
+      fi
+      if [[ "$background_failures" -gt 0 ]]; then
+        echo "warning: ${background_failures} background task(s) reported errors and were skipped" >&2
+      fi
       KCL_ARTIFACTS_RUN_KCL_ARTIFACTS_SH
     - chmod +x .gitlab-kcl-actions/run-kcl-artifacts.sh
     - export PATH="$CI_PROJECT_DIR/.kcl-tools/bin:$PATH"
