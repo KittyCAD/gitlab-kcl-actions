@@ -28,47 +28,45 @@ cp -R "$repo_root/tests/fixtures/basic/." "$project/"
     "$repo_root/scripts/run-kcl-artifacts.sh"
 )
 
-# Every .kcl file is its own assembly and gets a STEP, glTF, snapshot, and
-# physics artifacts, regardless of which folder it lives in.
+# Every .kcl file is its own assembly. Its artifacts live directly under the
+# single kcl-artifacts/ folder, nested by the folder the .kcl file lives in
+# (root-level files like cube.kcl are loose). Each file gets one snapshot.
 for assembly in main part assembly-2/main assembly-2/part; do
-  test -s "$project/kcl-artifacts/assemblies/${assembly}.step"
-  test -s "$project/kcl-artifacts/assemblies/${assembly}.gltf"
-  test -s "$project/kcl-artifacts/assemblies/${assembly}-analysis.json"
-  test -s "$project/kcl-artifacts/assemblies/${assembly}-bounding-box.json"
-  test -s "$project/kcl-artifacts/assemblies/${assembly}-snapshot.png"
+  test -s "$project/kcl-artifacts/${assembly}.step"
+  test -s "$project/kcl-artifacts/${assembly}.gltf"
+  test -s "$project/kcl-artifacts/${assembly}-analysis.json"
+  test -s "$project/kcl-artifacts/${assembly}-bounding-box.json"
+  test -s "$project/kcl-artifacts/${assembly}-snapshot.png"
 done
 
-for source in main part assembly-2/main assembly-2/part; do
-  for view in isometric front top right; do
-    test -s "$project/kcl-artifacts/snapshots/${source}.${view}.png"
-  done
-done
+# There is no source/ or snapshots/ folder anymore.
+if [[ -e "$project/kcl-artifacts/source" ]]; then
+  echo "error: kcl-artifacts/source should not exist" >&2
+  exit 1
+fi
+if [[ -e "$project/kcl-artifacts/snapshots" ]]; then
+  echo "error: kcl-artifacts/snapshots should not exist" >&2
+  exit 1
+fi
+if [[ -e "$project/kcl-artifacts/assemblies" ]]; then
+  echo "error: kcl-artifacts/assemblies should not exist" >&2
+  exit 1
+fi
 
-# empty.kcl could not be exported, so its assembly artifacts must be absent even
-# though the job succeeded.
+# empty.kcl could not be exported, so its artifacts must be absent even though
+# the job succeeded.
 for empty_artifact in \
-  "assemblies/empty.step" \
-  "assemblies/empty.gltf" \
-  "assemblies/empty-analysis.json" \
-  "assemblies/empty-bounding-box.json" \
-  "assemblies/empty-snapshot.png"; do
+  "empty.step" \
+  "empty.gltf" \
+  "empty-analysis.json" \
+  "empty-bounding-box.json" \
+  "empty-snapshot.png"; do
   if [[ -e "$project/kcl-artifacts/${empty_artifact}" ]]; then
     echo "error: empty.kcl should not have produced ${empty_artifact}" >&2
     exit 1
   fi
 done
 
-# Its source is still copied so reviewers can see the skipped input.
-test -s "$project/kcl-artifacts/source/empty.kcl"
-
-test -s "$project/kcl-artifacts/source/main.kcl"
-test -s "$project/kcl-artifacts/source/metadata.json"
-test -s "$project/kcl-artifacts/source/part.kcl"
-test -s "$project/kcl-artifacts/source/parameters.kcl"
-test -s "$project/kcl-artifacts/source/assembly-2/main.kcl"
-test -s "$project/kcl-artifacts/source/assembly-2/metadata.json"
-test -s "$project/kcl-artifacts/source/assembly-2/part.kcl"
-test -s "$project/kcl-artifacts/source/assembly-2/parameters.kcl"
 test -s "$project/kcl-artifacts/manifest.json"
 
 grep -q 'export width = 20' "$project/parameters.kcl"
@@ -118,40 +116,25 @@ expected = {"parameters.json"}
 for assembly in ("main", "part", "assembly-2/main", "assembly-2/part"):
     expected.update(
         {
-            f"assemblies/{assembly}-analysis.json",
-            f"assemblies/{assembly}-bounding-box.json",
-            f"assemblies/{assembly}.gltf",
-            f"assemblies/{assembly}.step",
-            f"assemblies/{assembly}-snapshot.png",
+            f"{assembly}-analysis.json",
+            f"{assembly}-bounding-box.json",
+            f"{assembly}.gltf",
+            f"{assembly}.step",
+            f"{assembly}-snapshot.png",
         }
     )
-for source in ("main", "part", "assembly-2/main", "assembly-2/part"):
-    for view in ("isometric", "front", "top", "right"):
-        expected.add(f"snapshots/{source}.{view}.png")
-for source in (
-    "main.kcl",
-    "metadata.json",
-    "part.kcl",
-    "parameters.kcl",
-    "empty.kcl",
-    "assembly-2/main.kcl",
-    "assembly-2/metadata.json",
-    "assembly-2/part.kcl",
-    "assembly-2/parameters.kcl",
-):
-    expected.add(f"source/{source}")
 missing = expected - artifacts
 if missing:
     raise SystemExit(f"manifest missing artifacts: {sorted(missing)}")
 
 # empty.kcl yields no exportable geometry, so it must not contribute any
-# assembly artifacts even though it is listed as an assembly.
+# artifacts even though it is listed as an assembly.
 forbidden = {
-    "assemblies/empty.step",
-    "assemblies/empty.gltf",
-    "assemblies/empty-analysis.json",
-    "assemblies/empty-bounding-box.json",
-    "assemblies/empty-snapshot.png",
+    "empty.step",
+    "empty.gltf",
+    "empty-analysis.json",
+    "empty-bounding-box.json",
+    "empty-snapshot.png",
 }
 present = forbidden & artifacts
 if present:
@@ -164,9 +147,7 @@ for assembly, bounding_box_unit in (
     ("assembly-2/part", "cm"),
 ):
     analysis = json.loads(
-        (artifact_root / "assemblies" / f"{assembly}-analysis.json").read_text(
-            encoding="utf-8"
-        )
+        (artifact_root / f"{assembly}-analysis.json").read_text(encoding="utf-8")
     )
     assert analysis["mass"]["output_unit"] == "kg"
     assert analysis["volume"]["output_unit"] == "cm3"
@@ -176,9 +157,7 @@ for assembly, bounding_box_unit in (
     assert sorted(analysis["bounding_box"]) == ["center", "dimensions"]
 
     bounding_box = json.loads(
-        (artifact_root / "assemblies" / f"{assembly}-bounding-box.json").read_text(
-            encoding="utf-8"
-        )
+        (artifact_root / f"{assembly}-bounding-box.json").read_text(encoding="utf-8")
     )
     assert bounding_box["output_unit"] == bounding_box_unit
     assert sorted(bounding_box) == ["center", "dimensions", "output_unit"]

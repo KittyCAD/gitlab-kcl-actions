@@ -117,10 +117,7 @@ def render_kcl_artifacts() -> str:
         - right-side
         - four-ways
         - iso
-      description: "Camera angle used for the per-file assembly snapshot preview."
-    snapshot_views:
-      default: iso,front,top,right-side
-      description: "Comma-separated camera angles used for per-file snapshot view PNGs."
+      description: "Camera angle used for the single snapshot preview generated per .kcl file."
     camera_style:
       default: ortho
       options:
@@ -172,7 +169,6 @@ def render_kcl_artifacts() -> str:
     KCL_METADATA_PATH: '$[[ inputs.metadata_path ]]'
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
-    KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
     KCL_ZOO_PARALLELISM: '$[[ inputs.parallelism ]]'

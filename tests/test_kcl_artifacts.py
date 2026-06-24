@@ -136,9 +136,8 @@ class KclArtifactsTests(unittest.TestCase):
             (nested / "parameters.kcl").write_text("", encoding="utf-8")
             write_metadata(nested / "metadata.json")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
-            kcl_artifacts.write_project_info(root, assemblies_out, snapshots_out)
+            kcl_artifacts.write_project_info(root, assemblies_out)
 
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8").splitlines(),
@@ -147,15 +146,6 @@ class KclArtifactsTests(unittest.TestCase):
                     "part\tpart.kcl\tparameters.kcl\tmetadata.json",
                     "assembly-2/main\tassembly-2/main.kcl\tassembly-2/parameters.kcl\tassembly-2/metadata.json",
                     "assembly-2/part\tassembly-2/part.kcl\tassembly-2/parameters.kcl\tassembly-2/metadata.json",
-                ],
-            )
-            self.assertEqual(
-                snapshots_out.read_text(encoding="utf-8").splitlines(),
-                [
-                    "main.kcl",
-                    "part.kcl",
-                    "assembly-2/main.kcl",
-                    "assembly-2/part.kcl",
                 ],
             )
 
@@ -168,11 +158,10 @@ class KclArtifactsTests(unittest.TestCase):
             (chair / "leg.kcl").write_text("", encoding="utf-8")
             (chair / "seat.kcl").write_text("", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
-                kcl_artifacts.write_project_info(root, assemblies_out, snapshots_out)
+                kcl_artifacts.write_project_info(root, assemblies_out)
 
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8").splitlines(),
@@ -181,10 +170,6 @@ class KclArtifactsTests(unittest.TestCase):
                     "chair/leg\tchair/leg.kcl\t-\t-",
                     "chair/seat\tchair/seat.kcl\t-\t-",
                 ],
-            )
-            self.assertEqual(
-                snapshots_out.read_text(encoding="utf-8").splitlines(),
-                ["cube.kcl", "chair/leg.kcl", "chair/seat.kcl"],
             )
 
     def test_project_info_shares_folder_parameters_across_siblings(self) -> None:
@@ -195,9 +180,8 @@ class KclArtifactsTests(unittest.TestCase):
             (root / "parameters.kcl").write_text("", encoding="utf-8")
             write_metadata(root / "metadata.json")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
-            kcl_artifacts.write_project_info(root, assemblies_out, snapshots_out)
+            kcl_artifacts.write_project_info(root, assemblies_out)
 
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8").splitlines(),
@@ -216,7 +200,6 @@ class KclArtifactsTests(unittest.TestCase):
                 kcl_artifacts.write_project_info(
                     root,
                     root / "assemblies.tsv",
-                    root / "snapshots.list",
                 )
 
     def test_project_info_can_use_custom_parameters_filename(self) -> None:
@@ -226,22 +209,16 @@ class KclArtifactsTests(unittest.TestCase):
             (root / "inputs.kcl").write_text("", encoding="utf-8")
             write_metadata(root / "metadata.json")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 parameters_filename="inputs.kcl",
             )
 
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8").splitlines(),
                 ["main\tmain.kcl\tinputs.kcl\tmetadata.json"],
-            )
-            self.assertEqual(
-                snapshots_out.read_text(encoding="utf-8").splitlines(),
-                ["main.kcl"],
             )
 
     def test_project_info_warns_for_missing_parameters_when_overrides_are_supplied(
@@ -252,14 +229,12 @@ class KclArtifactsTests(unittest.TestCase):
             (root / "main.kcl").write_text("", encoding="utf-8")
             write_metadata(root / "metadata.json")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 kcl_artifacts.write_project_info(
                     root,
                     assemblies_out,
-                    snapshots_out,
                     parameters_json=json.dumps({"width": 24}),
                 )
 
@@ -281,12 +256,10 @@ class KclArtifactsTests(unittest.TestCase):
             (nested / "parameters.kcl").write_text("", encoding="utf-8")
             write_metadata(nested / "mass-properties.json")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 metadata_path="mass-properties.json",
             )
 
@@ -311,12 +284,10 @@ class KclArtifactsTests(unittest.TestCase):
             (nested / "main.kcl").write_text("", encoding="utf-8")
             (nested / "parameters.kcl").write_text("", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 metadata_path="config/kcl-metadata.json",
             )
 
@@ -339,14 +310,12 @@ class KclArtifactsTests(unittest.TestCase):
             (nested / "main.kcl").write_text("", encoding="utf-8")
             write_metadata(nested / "metadata.json")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 kcl_artifacts.write_project_info(
                     root,
                     assemblies_out,
-                    snapshots_out,
                 )
 
             self.assertEqual(
@@ -369,12 +338,10 @@ class KclArtifactsTests(unittest.TestCase):
             (nested / "main.kcl").write_text("", encoding="utf-8")
             (nested / "parameters.kcl").write_text("", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
             )
 
             self.assertEqual(
@@ -398,12 +365,10 @@ class KclArtifactsTests(unittest.TestCase):
             write_metadata(nested / "metadata.json")
             (nested / "part.kcl").write_text("", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 json.dumps(["assembly-2/main.kcl", "assembly-2/part.kcl"]),
             )
 
@@ -413,10 +378,6 @@ class KclArtifactsTests(unittest.TestCase):
                     "assembly-2/main\tassembly-2/main.kcl\tassembly-2/parameters.kcl\tassembly-2/metadata.json",
                     "assembly-2/part\tassembly-2/part.kcl\tassembly-2/parameters.kcl\tassembly-2/metadata.json",
                 ],
-            )
-            self.assertEqual(
-                snapshots_out.read_text(encoding="utf-8").splitlines(),
-                ["assembly-2/main.kcl", "assembly-2/part.kcl"],
             )
 
     def test_project_info_rejects_selecting_parameters_file(self) -> None:
@@ -429,7 +390,6 @@ class KclArtifactsTests(unittest.TestCase):
                 kcl_artifacts.write_project_info(
                     root,
                     root / "assemblies.tsv",
-                    root / "snapshots.list",
                     json.dumps(["parameters.kcl"]),
                 )
 
@@ -443,22 +403,16 @@ class KclArtifactsTests(unittest.TestCase):
             changed_files = root / "changed-files.list"
             changed_files.write_text("part.kcl\n", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 changed_files_file=changed_files,
             )
 
             self.assertEqual(
                 assemblies_out.read_text(encoding="utf-8").splitlines(),
                 ["part\tpart.kcl\tparameters.kcl\tmetadata.json"],
-            )
-            self.assertEqual(
-                snapshots_out.read_text(encoding="utf-8").splitlines(),
-                ["part.kcl"],
             )
 
     def test_project_info_changed_parameters_file_selects_folder_siblings(self) -> None:
@@ -476,12 +430,10 @@ class KclArtifactsTests(unittest.TestCase):
             changed_files = root / "changed-files.list"
             changed_files.write_text("parameters.kcl\n", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 changed_files_file=changed_files,
             )
 
@@ -503,12 +455,10 @@ class KclArtifactsTests(unittest.TestCase):
             changed_files = root / "changed-files.list"
             changed_files.write_text("metadata.json\n", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 changed_files_file=changed_files,
             )
 
@@ -534,17 +484,14 @@ class KclArtifactsTests(unittest.TestCase):
             changed_files = root / "changed-files.list"
             changed_files.write_text("docs/readme.md\n", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 changed_files_file=changed_files,
             )
 
             self.assertEqual(assemblies_out.read_text(encoding="utf-8"), "")
-            self.assertEqual(snapshots_out.read_text(encoding="utf-8"), "")
 
     def test_project_info_allows_no_kcl_files_when_selecting_changed_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -552,17 +499,14 @@ class KclArtifactsTests(unittest.TestCase):
             changed_files = root / "changed-files.list"
             changed_files.write_text("README.md\n", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 changed_files_file=changed_files,
             )
 
             self.assertEqual(assemblies_out.read_text(encoding="utf-8"), "")
-            self.assertEqual(snapshots_out.read_text(encoding="utf-8"), "")
 
     def test_project_info_can_filter_to_one_bare_main_kcl_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -573,12 +517,10 @@ class KclArtifactsTests(unittest.TestCase):
             (nested / "parameters.kcl").write_text("", encoding="utf-8")
             write_metadata(nested / "metadata.json")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 "assembly-2/design.kcl",
             )
 
@@ -604,12 +546,10 @@ class KclArtifactsTests(unittest.TestCase):
             changed_files = root / "changed-files.list"
             changed_files.write_text("config/kcl-metadata.json\n", encoding="utf-8")
             assemblies_out = root / "assemblies.tsv"
-            snapshots_out = root / "snapshots.list"
 
             kcl_artifacts.write_project_info(
                 root,
                 assemblies_out,
-                snapshots_out,
                 changed_files_file=changed_files,
                 metadata_path="config/kcl-metadata.json",
             )
@@ -632,7 +572,6 @@ class KclArtifactsTests(unittest.TestCase):
                 kcl_artifacts.write_project_info(
                     root,
                     root / "assemblies.tsv",
-                    root / "snapshots.list",
                     json.dumps(["missing/main.kcl"]),
                 )
 
@@ -647,7 +586,6 @@ class KclArtifactsTests(unittest.TestCase):
                 kcl_artifacts.write_project_info(
                     root,
                     root / "assemblies.tsv",
-                    root / "snapshots.list",
                     parameters_filename="config/parameters.kcl",
                 )
 
@@ -662,7 +600,6 @@ class KclArtifactsTests(unittest.TestCase):
                 kcl_artifacts.write_project_info(
                     root,
                     root / "assemblies.tsv",
-                    root / "snapshots.list",
                     metadata_path="config/metadata.kcl",
                 )
 
@@ -836,21 +773,6 @@ class KclArtifactsTests(unittest.TestCase):
                 },
             )
 
-    def test_source_copy_skips_missing_optional_support_files(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "main.kcl").write_text("", encoding="utf-8")
-            assemblies = root / "assemblies.tsv"
-            assemblies.write_text("root\tmain.kcl\t-\t-\n", encoding="utf-8")
-            snapshots = root / "snapshots.list"
-            snapshots.write_text("main.kcl\n", encoding="utf-8")
-            output = root / "source"
-
-            kcl_artifacts.write_source_files(root, snapshots, assemblies, output)
-
-            self.assertTrue((output / "main.kcl").is_file())
-            self.assertEqual(list(output.rglob("*")), [output / "main.kcl"])
-
     def test_manifest_saves_parameter_overrides_for_upload_tags(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -861,11 +783,7 @@ class KclArtifactsTests(unittest.TestCase):
                 "root\tmain.kcl\tparameters.kcl\tmetadata.json\n",
                 encoding="utf-8",
             )
-            (artifact_dir / "source").mkdir()
-            (artifact_dir / "source" / "parameters.kcl").write_text(
-                "export thing = 2\n",
-                encoding="utf-8",
-            )
+            (artifact_dir / "main.step").write_text("solid", encoding="utf-8")
 
             kcl_artifacts.write_manifest(
                 artifact_dir,
@@ -898,6 +816,7 @@ class KclArtifactsTests(unittest.TestCase):
                 {"label": "hello world", "thing": 2},
             )
             self.assertIn("parameters.json", manifest["artifacts"])
+            self.assertIn("main.step", manifest["artifacts"])
 
     def test_manifest_records_missing_optional_support_files_as_null(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

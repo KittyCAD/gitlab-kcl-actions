@@ -251,9 +251,8 @@ several valid reasons a file might not export geometry (an empty file, a module
 that is only meant to be imported, a file that intentionally renders nothing), so
 the workflow warns, removes any partial output for that file, and continues with
 the remaining files. The skipped file still appears in the manifest's
-`assemblies` list and its source is copied to `source/`, but it contributes no
-`assemblies/<id>.*` artifacts. The job logs a summary of how many files were
-skipped at the end.
+`assemblies` list, but it contributes no `<id>.*` artifacts. The job logs a
+summary of how many files were skipped at the end.
 
 #### Changed-file selection
 
@@ -406,88 +405,51 @@ The workflow always writes to `kcl-artifacts/`:
 
 ```text
 kcl-artifacts/
-  assemblies/
-    main.step
-    main.gltf
-    main-analysis.json
-    main-bounding-box.json
-    main-snapshot.png
-    part.step
-    part.gltf
-    part-analysis.json
-    part-bounding-box.json
-    part-snapshot.png
-    assembly-2/
-      main.step
-      main.gltf
-      main-analysis.json
-      main-bounding-box.json
-      main-snapshot.png
-      part.step
-      part.gltf
-      part-analysis.json
-      part-bounding-box.json
-      part-snapshot.png
-  snapshots/
-    main.isometric.png
-    main.front.png
-    main.top.png
-    main.right.png
-    part.isometric.png
-    part.front.png
-    part.top.png
-    part.right.png
-    assembly-2/
-      main.isometric.png
-      main.front.png
-      main.top.png
-      main.right.png
-      part.isometric.png
-      part.front.png
-      part.top.png
-      part.right.png
-  source/
-    main.kcl
-    metadata.json
-    part.kcl
-    parameters.kcl
-    assembly-2/
-      main.kcl
-      metadata.json
-      part.kcl
-      parameters.kcl
+  cube.step
+  cube.gltf
+  cube-analysis.json
+  cube-bounding-box.json
+  cube-snapshot.png
+  assembly-1/
+    part1.step
+    part1.gltf
+    part1-analysis.json
+    part1-bounding-box.json
+    part1-snapshot.png
+    part2.step
+    part2.gltf
+    ...
+  chair/
+    leg.step
+    leg.gltf
+    leg-snapshot.png
+    seat.step
+    ...
+  parameters.json
   manifest.json
 ```
 
-Every `.kcl` file gets a STEP, glTF, and a four-ways assembly snapshot preview
-under `kcl-artifacts/assemblies/`, named by the file's repo-relative path with
-its extension swapped: `assembly-1/part1.kcl` writes
-`assemblies/assembly-1/part1.step`, `assemblies/assembly-1/part1.gltf`,
-`assemblies/assembly-1/part1-analysis.json`,
-`assemblies/assembly-1/part1-bounding-box.json`, and
-`assemblies/assembly-1/part1-snapshot.png`; a root file `cube.kcl` writes
-`assemblies/cube.step`, and so on. The analysis and bounding-box files are only
-present when metadata JSON was available for that file.
+There is one `kcl-artifacts/` folder. Each `.kcl` file's artifacts are written
+directly under it, nested by the folder the source `.kcl` file lives in. A
+root-level file such as `cube.kcl` writes loose artifacts (`cube.step`,
+`cube.gltf`, `cube-snapshot.png`, ...) at the top of `kcl-artifacts/`, while a
+file in a folder such as `assembly-1/part1.kcl` writes
+`assembly-1/part1.step`, `assembly-1/part1.gltf`,
+`assembly-1/part1-snapshot.png`, and so on. There are no separate `assemblies/`,
+`snapshots/`, or `source/` subfolders, and the source `.kcl` files are not
+copied (they already live in the repository).
 
-Per-file view snapshots are generated for every selected `.kcl` file (the
-configured parameters filename is excluded), preserving the source path under
-`kcl-artifacts/snapshots/` and adding a view suffix. The default scheme is
-`<source-without-.kcl>.<view>.png`, with `isometric`, `front`, `top`, and
-`right` views. The source `.kcl` files are copied under `kcl-artifacts/source/`
-with the same relative paths, along with each selected file's folder parameters
-file and metadata JSON when present.
-Assembly artifacts, source copies, and per-file snapshots are limited to the
-selected `.kcl` files, whether they were selected by `main_kcl_paths` or by
-changed-file detection.
+Each `.kcl` file gets exactly one snapshot preview, `<id>-snapshot.png`, taken
+at the `snapshot_angle` camera angle (default `four-ways`, a single image
+composed of four views). The `<id>-analysis.json` and `<id>-bounding-box.json`
+files are only present when metadata JSON was available for that file. Artifacts
+are limited to the selected `.kcl` files, whether they were selected by
+`main_kcl_paths` or by changed-file detection.
 
-Override `snapshot_views` with a comma-separated Zoo snapshot angle list to
-change the per-file views. The built-in default maps `iso` to `isometric` and
-`right-side` to `right` in filenames.
-
-The artifact job runs assembly generation and per-file snapshot generation with
-bounded concurrency. Override `parallelism` to tune the maximum number of
-concurrent Zoo CLI artifact commands. The default is `6`; set it to `1` to force
-the old sequential behavior. Each Zoo CLI artifact command retries on failure;
+The artifact job runs artifact generation with bounded concurrency. Override
+`parallelism` to tune the maximum number of concurrent Zoo CLI artifact
+commands. The default is `6`; set it to `1` to force sequential behavior. Each
+Zoo CLI artifact command retries on failure;
 override `zoo_attempts` and `zoo_retry_delay` to tune the retry count and delay.
 The defaults are `4` attempts with a `10` second delay.
 

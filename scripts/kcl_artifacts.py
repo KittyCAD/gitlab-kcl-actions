@@ -9,7 +9,6 @@ import math
 import os
 import re
 import shlex
-import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -396,7 +395,6 @@ def assemblies_for_changed_paths(
 def write_project_info(
     repo_root: Path,
     assemblies_out: Path,
-    snapshots_out: Path,
     main_kcl_paths_json: str = "[]",
     changed_files_file: Path | None = None,
     parameters_filename: str = DEFAULT_PARAMETERS_FILENAME,
@@ -473,12 +471,6 @@ def write_project_info(
             )
             + "\n"
             for assembly in assemblies
-        ),
-        encoding="utf-8",
-    )
-    snapshots_out.write_text(
-        "".join(
-            relative_posix(assembly_file, repo_root) + "\n" for assembly_file in assembly_files
         ),
         encoding="utf-8",
     )
@@ -616,38 +608,6 @@ def write_bounding_box_json(
     )
 
 
-def write_source_files(
-    repo_root: Path,
-    snapshots_file: Path,
-    assemblies_file: Path,
-    output_dir: Path,
-) -> None:
-    repo_root = repo_root.resolve()
-    output_dir = output_dir.resolve()
-    relative_paths: set[str] = set()
-    for line in snapshots_file.read_text(encoding="utf-8").splitlines():
-        if not line:
-            continue
-        relative_path = normalize_repo_path(line, "source file")
-        if not relative_path.endswith(".kcl"):
-            continue
-        relative_paths.add(relative_path)
-
-    for assembly in load_assemblies(assemblies_file):
-        if assembly.parameters_kcl is not None:
-            relative_paths.add(normalize_repo_path(assembly.parameters_kcl, "source file"))
-        if assembly.metadata_json is not None:
-            relative_paths.add(normalize_repo_path(assembly.metadata_json, "source file"))
-
-    for relative_path in sorted(relative_paths):
-        source = repo_root / relative_path
-        if not source.is_file():
-            fail(f"source file does not exist: {relative_path}")
-        destination = output_dir / relative_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, destination)
-
-
 def parameters_json_name_for_assemblies(assemblies: list[Assembly]) -> str:
     names = set()
     for assembly in assemblies:
@@ -729,7 +689,6 @@ def build_parser() -> argparse.ArgumentParser:
     info_parser = subparsers.add_parser("project-info")
     info_parser.add_argument("--repo-root", required=True, type=Path)
     info_parser.add_argument("--assemblies-out", required=True, type=Path)
-    info_parser.add_argument("--snapshots-out", required=True, type=Path)
     info_parser.add_argument("--main-kcl-paths", default="[]")
     info_parser.add_argument("--changed-files-file", type=Path)
     info_parser.add_argument("--parameters-filename", default=DEFAULT_PARAMETERS_FILENAME)
@@ -744,12 +703,6 @@ def build_parser() -> argparse.ArgumentParser:
     bounding_box_parser.add_argument("--analysis-file", required=True, type=Path)
     bounding_box_parser.add_argument("--output-file", required=True, type=Path)
     bounding_box_parser.add_argument("--output-unit", required=True)
-
-    source_parser = subparsers.add_parser("write-source-files")
-    source_parser.add_argument("--repo-root", required=True, type=Path)
-    source_parser.add_argument("--snapshots-file", required=True, type=Path)
-    source_parser.add_argument("--assemblies-file", required=True, type=Path)
-    source_parser.add_argument("--output-dir", required=True, type=Path)
 
     manifest_parser = subparsers.add_parser("write-manifest")
     manifest_parser.add_argument("--artifact-dir", required=True, type=Path)
@@ -778,7 +731,6 @@ def main(argv: list[str] | None = None) -> int:
             write_project_info(
                 args.repo_root,
                 args.assemblies_out,
-                args.snapshots_out,
                 args.main_kcl_paths,
                 args.changed_files_file,
                 args.parameters_filename,
@@ -792,13 +744,6 @@ def main(argv: list[str] | None = None) -> int:
                 args.analysis_file,
                 args.output_file,
                 args.output_unit,
-            )
-        elif args.command == "write-source-files":
-            write_source_files(
-                args.repo_root,
-                args.snapshots_file,
-                args.assemblies_file,
-                args.output_dir,
             )
         elif args.command == "write-manifest":
             write_manifest(

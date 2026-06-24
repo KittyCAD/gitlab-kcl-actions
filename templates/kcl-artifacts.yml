@@ -38,10 +38,7 @@ spec:
         - right-side
         - four-ways
         - iso
-      description: "Camera angle used for the per-file assembly snapshot preview."
-    snapshot_views:
-      default: iso,front,top,right-side
-      description: "Comma-separated camera angles used for per-file snapshot view PNGs."
+      description: "Camera angle used for the single snapshot preview generated per .kcl file."
     camera_style:
       default: ortho
       options:
@@ -184,7 +181,6 @@ spec:
     KCL_METADATA_PATH: '$[[ inputs.metadata_path ]]'
     KCL_ZOO_HOST: '$[[ inputs.host ]]'
     KCL_SNAPSHOT_ANGLE: '$[[ inputs.snapshot_angle ]]'
-    KCL_SNAPSHOT_VIEWS: '$[[ inputs.snapshot_views ]]'
     KCL_CAMERA_STYLE: '$[[ inputs.camera_style ]]'
     KCL_CAMERA_PADDING: '$[[ inputs.camera_padding ]]'
     KCL_ZOO_PARALLELISM: '$[[ inputs.parallelism ]]'
@@ -208,7 +204,6 @@ spec:
       import os
       import re
       import shlex
-      import shutil
       import sys
       from dataclasses import dataclass
       from pathlib import Path, PurePosixPath
@@ -595,7 +590,6 @@ spec:
       def write_project_info(
           repo_root: Path,
           assemblies_out: Path,
-          snapshots_out: Path,
           main_kcl_paths_json: str = "[]",
           changed_files_file: Path | None = None,
           parameters_filename: str = DEFAULT_PARAMETERS_FILENAME,
@@ -672,12 +666,6 @@ spec:
                   )
                   + "\n"
                   for assembly in assemblies
-              ),
-              encoding="utf-8",
-          )
-          snapshots_out.write_text(
-              "".join(
-                  relative_posix(assembly_file, repo_root) + "\n" for assembly_file in assembly_files
               ),
               encoding="utf-8",
           )
@@ -815,38 +803,6 @@ spec:
           )
 
 
-      def write_source_files(
-          repo_root: Path,
-          snapshots_file: Path,
-          assemblies_file: Path,
-          output_dir: Path,
-      ) -> None:
-          repo_root = repo_root.resolve()
-          output_dir = output_dir.resolve()
-          relative_paths: set[str] = set()
-          for line in snapshots_file.read_text(encoding="utf-8").splitlines():
-              if not line:
-                  continue
-              relative_path = normalize_repo_path(line, "source file")
-              if not relative_path.endswith(".kcl"):
-                  continue
-              relative_paths.add(relative_path)
-
-          for assembly in load_assemblies(assemblies_file):
-              if assembly.parameters_kcl is not None:
-                  relative_paths.add(normalize_repo_path(assembly.parameters_kcl, "source file"))
-              if assembly.metadata_json is not None:
-                  relative_paths.add(normalize_repo_path(assembly.metadata_json, "source file"))
-
-          for relative_path in sorted(relative_paths):
-              source = repo_root / relative_path
-              if not source.is_file():
-                  fail(f"source file does not exist: {relative_path}")
-              destination = output_dir / relative_path
-              destination.parent.mkdir(parents=True, exist_ok=True)
-              shutil.copyfile(source, destination)
-
-
       def parameters_json_name_for_assemblies(assemblies: list[Assembly]) -> str:
           names = set()
           for assembly in assemblies:
@@ -928,7 +884,6 @@ spec:
           info_parser = subparsers.add_parser("project-info")
           info_parser.add_argument("--repo-root", required=True, type=Path)
           info_parser.add_argument("--assemblies-out", required=True, type=Path)
-          info_parser.add_argument("--snapshots-out", required=True, type=Path)
           info_parser.add_argument("--main-kcl-paths", default="[]")
           info_parser.add_argument("--changed-files-file", type=Path)
           info_parser.add_argument("--parameters-filename", default=DEFAULT_PARAMETERS_FILENAME)
@@ -943,12 +898,6 @@ spec:
           bounding_box_parser.add_argument("--analysis-file", required=True, type=Path)
           bounding_box_parser.add_argument("--output-file", required=True, type=Path)
           bounding_box_parser.add_argument("--output-unit", required=True)
-
-          source_parser = subparsers.add_parser("write-source-files")
-          source_parser.add_argument("--repo-root", required=True, type=Path)
-          source_parser.add_argument("--snapshots-file", required=True, type=Path)
-          source_parser.add_argument("--assemblies-file", required=True, type=Path)
-          source_parser.add_argument("--output-dir", required=True, type=Path)
 
           manifest_parser = subparsers.add_parser("write-manifest")
           manifest_parser.add_argument("--artifact-dir", required=True, type=Path)
@@ -977,7 +926,6 @@ spec:
                   write_project_info(
                       args.repo_root,
                       args.assemblies_out,
-                      args.snapshots_out,
                       args.main_kcl_paths,
                       args.changed_files_file,
                       args.parameters_filename,
@@ -991,13 +939,6 @@ spec:
                       args.analysis_file,
                       args.output_file,
                       args.output_unit,
-                  )
-              elif args.command == "write-source-files":
-                  write_source_files(
-                      args.repo_root,
-                      args.snapshots_file,
-                      args.assemblies_file,
-                      args.output_dir,
                   )
               elif args.command == "write-manifest":
                   write_manifest(
@@ -1039,10 +980,6 @@ spec:
       metadata_path="${KCL_METADATA_PATH:-metadata.json}"
       host="${KCL_ZOO_HOST:-}"
       snapshot_angle="${KCL_SNAPSHOT_ANGLE:-four-ways}"
-      snapshot_views="${KCL_SNAPSHOT_VIEWS:-iso,front,top,right-side}"
-      if [[ -z "$snapshot_views" ]]; then
-        snapshot_views="iso,front,top,right-side"
-      fi
       camera_style="${KCL_CAMERA_STYLE:-ortho}"
       camera_padding="${KCL_CAMERA_PADDING:-0.1}"
       zoo_attempts="${KCL_ZOO_ATTEMPTS:-4}"
@@ -1142,14 +1079,13 @@ spec:
         --exclude='./kcl-artifacts' \
         -cf - . | tar -C "$workspace" -xf -
       rm -rf "$artifact_dir"
-      mkdir -p "$artifact_dir/assemblies" "$artifact_dir/snapshots" "$artifact_dir/source"
+      mkdir -p "$artifact_dir"
 
       cd "$workspace"
 
       python3 "$python_helper" project-info \
         --repo-root "$workspace" \
         --assemblies-out "$state_dir/assemblies.tsv" \
-        --snapshots-out "$state_dir/snapshots.list" \
         --main-kcl-paths "$main_kcl_paths" \
         --parameters-filename "$parameters_filename" \
         --metadata-path "$metadata_path" \
@@ -1314,23 +1250,6 @@ spec:
         fi
       }
 
-      snapshot_view_slug() {
-        case "$1" in
-          iso)
-            printf '%s\n' "isometric"
-            ;;
-          right-side)
-            printf '%s\n' "right"
-            ;;
-          four-ways)
-            printf '%s\n' "four-ways"
-            ;;
-          *)
-            printf '%s\n' "$1" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//;s/-$//'
-            ;;
-        esac
-      }
-
       export_one() {
         local format="$1"
         local extension="$2"
@@ -1382,7 +1301,7 @@ spec:
         local assembly_id="$2"
         local main_kcl="$3"
         local metadata_json="$4"
-        local artifact_base="$artifact_dir/assemblies/$assembly_id"
+        local artifact_base="$artifact_dir/$assembly_id"
         local metadata_env=""
         local analysis_file=""
         local bounding_box_analysis_file=""
@@ -1496,44 +1415,6 @@ spec:
           process_assembly "$assembly_index" "$assembly_id" "$main_kcl" "$metadata_json"
       done < "$state_dir/assemblies.tsv"
       wait_for_background_jobs
-
-      write_snapshot_view() {
-        local snapshot_input="$1"
-        local snapshot_view_angle="$2"
-        local snapshot_base="$artifact_dir/snapshots/${snapshot_input%.kcl}"
-        local snapshot_slug
-        local snapshot_output
-
-        snapshot_slug="$(snapshot_view_slug "$snapshot_view_angle")"
-        snapshot_output="${snapshot_base}.${snapshot_slug}.png"
-        mkdir -p "$(dirname "$snapshot_output")"
-        run_zoo "${zoo_cmd[@]}" kcl snapshot \
-          --output-format png \
-          --angle "$snapshot_view_angle" \
-          --camera-style "$camera_style" \
-          --camera-padding "$camera_padding" \
-          "$snapshot_input" \
-          "$snapshot_output"
-      }
-
-      IFS=',' read -r -a snapshot_view_angles <<< "$snapshot_views"
-      while IFS= read -r snapshot_input; do
-        [[ -n "$snapshot_input" ]] || continue
-        for snapshot_view_angle in "${snapshot_view_angles[@]}"; do
-          snapshot_view_angle="${snapshot_view_angle//[[:space:]]/}"
-          [[ -n "$snapshot_view_angle" ]] || continue
-          run_background \
-            "snapshot ${snapshot_input} ${snapshot_view_angle}" \
-            write_snapshot_view "$snapshot_input" "$snapshot_view_angle"
-        done
-      done < "$state_dir/snapshots.list"
-      wait_for_background_jobs
-
-      python3 "$python_helper" write-source-files \
-        --repo-root "$workspace" \
-        --snapshots-file "$state_dir/snapshots.list" \
-        --assemblies-file "$state_dir/assemblies.tsv" \
-        --output-dir "$artifact_dir/source"
 
       python3 "$python_helper" write-manifest \
         --artifact-dir "$artifact_dir" \

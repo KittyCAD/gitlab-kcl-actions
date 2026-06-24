@@ -17,10 +17,6 @@ parameters_filename="${KCL_PARAMETERS_FILENAME:-parameters.kcl}"
 metadata_path="${KCL_METADATA_PATH:-metadata.json}"
 host="${KCL_ZOO_HOST:-}"
 snapshot_angle="${KCL_SNAPSHOT_ANGLE:-four-ways}"
-snapshot_views="${KCL_SNAPSHOT_VIEWS:-iso,front,top,right-side}"
-if [[ -z "$snapshot_views" ]]; then
-  snapshot_views="iso,front,top,right-side"
-fi
 camera_style="${KCL_CAMERA_STYLE:-ortho}"
 camera_padding="${KCL_CAMERA_PADDING:-0.1}"
 zoo_attempts="${KCL_ZOO_ATTEMPTS:-4}"
@@ -120,14 +116,13 @@ tar \
   --exclude='./kcl-artifacts' \
   -cf - . | tar -C "$workspace" -xf -
 rm -rf "$artifact_dir"
-mkdir -p "$artifact_dir/assemblies" "$artifact_dir/snapshots" "$artifact_dir/source"
+mkdir -p "$artifact_dir"
 
 cd "$workspace"
 
 python3 "$python_helper" project-info \
   --repo-root "$workspace" \
   --assemblies-out "$state_dir/assemblies.tsv" \
-  --snapshots-out "$state_dir/snapshots.list" \
   --main-kcl-paths "$main_kcl_paths" \
   --parameters-filename "$parameters_filename" \
   --metadata-path "$metadata_path" \
@@ -292,23 +287,6 @@ record_assembly_command_status() {
   fi
 }
 
-snapshot_view_slug() {
-  case "$1" in
-    iso)
-      printf '%s\n' "isometric"
-      ;;
-    right-side)
-      printf '%s\n' "right"
-      ;;
-    four-ways)
-      printf '%s\n' "four-ways"
-      ;;
-    *)
-      printf '%s\n' "$1" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//;s/-$//'
-      ;;
-  esac
-}
-
 export_one() {
   local format="$1"
   local extension="$2"
@@ -360,7 +338,7 @@ process_assembly() {
   local assembly_id="$2"
   local main_kcl="$3"
   local metadata_json="$4"
-  local artifact_base="$artifact_dir/assemblies/$assembly_id"
+  local artifact_base="$artifact_dir/$assembly_id"
   local metadata_env=""
   local analysis_file=""
   local bounding_box_analysis_file=""
@@ -474,44 +452,6 @@ while IFS=$'\t' read -r assembly_id main_kcl _parameters_kcl metadata_json; do
     process_assembly "$assembly_index" "$assembly_id" "$main_kcl" "$metadata_json"
 done < "$state_dir/assemblies.tsv"
 wait_for_background_jobs
-
-write_snapshot_view() {
-  local snapshot_input="$1"
-  local snapshot_view_angle="$2"
-  local snapshot_base="$artifact_dir/snapshots/${snapshot_input%.kcl}"
-  local snapshot_slug
-  local snapshot_output
-
-  snapshot_slug="$(snapshot_view_slug "$snapshot_view_angle")"
-  snapshot_output="${snapshot_base}.${snapshot_slug}.png"
-  mkdir -p "$(dirname "$snapshot_output")"
-  run_zoo "${zoo_cmd[@]}" kcl snapshot \
-    --output-format png \
-    --angle "$snapshot_view_angle" \
-    --camera-style "$camera_style" \
-    --camera-padding "$camera_padding" \
-    "$snapshot_input" \
-    "$snapshot_output"
-}
-
-IFS=',' read -r -a snapshot_view_angles <<< "$snapshot_views"
-while IFS= read -r snapshot_input; do
-  [[ -n "$snapshot_input" ]] || continue
-  for snapshot_view_angle in "${snapshot_view_angles[@]}"; do
-    snapshot_view_angle="${snapshot_view_angle//[[:space:]]/}"
-    [[ -n "$snapshot_view_angle" ]] || continue
-    run_background \
-      "snapshot ${snapshot_input} ${snapshot_view_angle}" \
-      write_snapshot_view "$snapshot_input" "$snapshot_view_angle"
-  done
-done < "$state_dir/snapshots.list"
-wait_for_background_jobs
-
-python3 "$python_helper" write-source-files \
-  --repo-root "$workspace" \
-  --snapshots-file "$state_dir/snapshots.list" \
-  --assemblies-file "$state_dir/assemblies.tsv" \
-  --output-dir "$artifact_dir/source"
 
 python3 "$python_helper" write-manifest \
   --artifact-dir "$artifact_dir" \
