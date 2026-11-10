@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 
 [[package]]
@@ -66,7 +66,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "kittycad", specifier = ">=1.4.0" }]
+requires-dist = [{ name = "kittycad", specifier = ">=1.10.0" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -122,7 +122,7 @@ wheels = [
 
 [[package]]
 name = "kittycad"
-version = "1.4.0"
+version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -135,9 +135,9 @@ dependencies = [
     { name = "truststore" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/d9/2c4701024d4cdfcaffaf7c2eb4792d9d9cc5d852c405fc72bf2948cb20e7/kittycad-1.4.0.tar.gz", hash = "sha256:2e2b1691d2520843974593dad6cfda67642c7c19142b53e8df87a42b951f2eba", size = 219690, upload-time = "2026-06-25T13:35:18.626Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/57/11ff88f3823cc45613965b6c8c7dfb63a84979b06b3416089fc03ab41286/kittycad-1.10.0.tar.gz", hash = "sha256:8095963a86f16922a7739ad85f5a83190e1a84823dccc7d3077eece20d78de3b", size = 251820, upload-time = "2026-11-06T19:28:38.323Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/b6/126719b32e015b1cca6991281ad4c3a02e417a68e622401206633cd012ff/kittycad-1.4.0-py3-none-any.whl", hash = "sha256:11ed5ef5187438a570f14d138bf32f67174a0366b3083e91f2f09ad116623a82", size = 386744, upload-time = "2026-06-25T13:35:16.992Z" },
+    { url = "https://files.pythonhosted.org/packages/98/a9/67ec5166278044e0d9a0c5976bfefa8882bcc325e9f07aea8ad377e2a20f/kittycad-1.10.0-py3-none-any.whl", hash = "sha256:48091f4507566ea13b50a882834cea201ad2965e4a3da50f5eb26ac2fc7ed3fb", size = 426957, upload-time = "2026-11-06T19:28:36.662Z" },
 ]
 
 [[package]]
